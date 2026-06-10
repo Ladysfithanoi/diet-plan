@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import type { NutritionResult } from "./DietForm";
 import { FOODS, type FoodItem } from "@/lib/foods-data";
+import { getCookingTip } from "@/lib/cooking-tips";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ function TrackingBar({
 // ─── AiMealCard ───────────────────────────────────────────────────────────────
 
 function AiMealCard({ meal }: { meal: AiMeal }) {
+  const cookingTip = getCookingTip(meal.name);
   return (
     <div className="rounded-xl overflow-hidden" style={{ border: "1px solid rgba(18,16,13,0.1)" }}>
       <div
@@ -149,6 +151,18 @@ function AiMealCard({ meal }: { meal: AiMeal }) {
           C: {Math.round(meal.carbs)}g
         </p>
       </div>
+      {cookingTip && (
+        <div
+          className="px-4 py-2.5 flex items-start gap-2"
+          style={{ borderTop: "1px dashed rgba(18,16,13,0.12)", background: "rgba(18,16,13,0.015)" }}
+        >
+          <span style={{ fontSize: "0.8rem", lineHeight: 1.5 }} aria-hidden="true">👨‍🍳</span>
+          <p style={{ fontSize: "0.75rem", color: "rgba(18,16,13,0.55)", lineHeight: 1.5 }}>
+            <span style={{ fontWeight: 700, color: "#eb0915" }}>Gợi ý chế biến: </span>
+            {cookingTip}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -293,16 +307,26 @@ function PdfTemplate({
               </tr>
             </thead>
             <tbody>
-              {aiMeals.map((meal, i) => (
-                <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
-                  <td style={{ ...tdBold, color: "#eb0915", whiteSpace: "nowrap" }}>{meal.mealName}</td>
-                  <td style={td}>{meal.name}</td>
-                  <td style={{ ...tdCenter, fontWeight: 600 }}>{Math.round(meal.calories)}</td>
-                  <td style={tdCenter}>{Math.round(meal.protein)}</td>
-                  <td style={tdCenter}>{Math.round(meal.fat)}</td>
-                  <td style={tdCenter}>{Math.round(meal.carbs)}</td>
-                </tr>
-              ))}
+              {aiMeals.map((meal, i) => {
+                const tip = getCookingTip(meal.name);
+                return (
+                  <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
+                    <td style={{ ...tdBold, color: "#eb0915", whiteSpace: "nowrap" }}>{meal.mealName}</td>
+                    <td style={td}>
+                      {meal.name}
+                      {tip && (
+                        <span style={{ display: "block", fontSize: "10px", color: "rgba(18,16,13,0.45)", marginTop: "4px", fontStyle: "italic" }}>
+                          👨‍🍳 Gợi ý chế biến: {tip}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ ...tdCenter, fontWeight: 600 }}>{Math.round(meal.calories)}</td>
+                    <td style={tdCenter}>{Math.round(meal.protein)}</td>
+                    <td style={tdCenter}>{Math.round(meal.fat)}</td>
+                    <td style={tdCenter}>{Math.round(meal.carbs)}</td>
+                  </tr>
+                );
+              })}
               {aiGrand && (
                 <tr style={{ background: "rgba(235,9,21,0.05)" }}>
                   <td style={{ ...tdBold, color: "#eb0915" }} colSpan={2}>Tổng cả ngày</td>
