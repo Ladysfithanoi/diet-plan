@@ -15,6 +15,10 @@ interface TipRule {
 const PROTEIN_TIPS: TipRule[] = [
   { keywords: ['whey'],
     tip: 'Pha với 250–300ml nước lạnh, lắc đều; uống ngay sau buổi tập để hấp thu nhanh.' },
+  // 'trứng' phải đứng TRƯỚC 'gà'/'vịt' — vì "trứng gà", "trứng vịt lộn"
+  // chứa cả chữ "gà"/"vịt" sẽ khớp nhầm sang rule thịt nếu để sau.
+  { keywords: ['trứng'],
+    tip: 'Luộc lòng đào hoặc ốp la trên chảo chống dính không dầu.' },
   { keywords: ['ức gà', 'lườn gà'],
     tip: 'Ướp muối + tiêu + tỏi 10 phút rồi áp chảo chống dính không dầu hoặc luộc/hấp; vắt thêm chanh cho mềm, đỡ khô.' },
   { keywords: ['gà'],
@@ -29,8 +33,6 @@ const PROTEIN_TIPS: TipRule[] = [
     tip: 'Hấp gừng hoặc xào nhanh lửa lớn, không nấu lâu kẻo dai.' },
   { keywords: ['bò'],
     tip: 'Áp chảo/xào nhanh lửa lớn với hành tây, ớt chuông; không xào quá kỹ kẻo dai.' },
-  { keywords: ['trứng'],
-    tip: 'Luộc lòng đào hoặc ốp la trên chảo chống dính không dầu.' },
   { keywords: ['đậu phụ', 'đậu hũ'],
     tip: 'Hấp hoặc sốt cà chua thay vì chiên ngập dầu để bớt hút mỡ.' },
   { keywords: ['vịt', 'ngan'],
