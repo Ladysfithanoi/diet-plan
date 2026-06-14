@@ -69,6 +69,12 @@ function newRow(): IngredientRow {
   return { id: `${Date.now()}-${Math.random()}`, query: "", food: null, grams: 100 };
 }
 
+// Nhóm đồ uống đo theo ml — hiển thị đơn vị "ml" thay vì "g" (1ml ≈ 1g)
+const LIQUID_TAGS: ReadonlySet<FoodItem["tag"]> = new Set(["beverage", "softdrink", "alcohol", "coffee"]);
+function unitFor(food: FoodItem | null): string {
+  return food && LIQUID_TAGS.has(food.tag) ? "ml" : "g";
+}
+
 function computeRowMacros(food: FoodItem, grams: number) {
   const r = grams / 100;
   return {
@@ -462,7 +468,7 @@ function IngredientSearchRow({
                     {food.name}
                   </span>
                   <span className="text-xs ml-2" style={{ color: "rgba(18,16,13,0.4)" }}>
-                    {food.calories} kcal · P:{food.protein}g F:{food.fat}g C:{food.carbs}g /100g
+                    {food.calories} kcal · P:{food.protein}g F:{food.fat}g C:{food.carbs}g /100{unitFor(food)}
                   </span>
                 </button>
               ))}
@@ -483,7 +489,7 @@ function IngredientSearchRow({
             className="dp-input text-center"
             style={{ width: "68px" }}
           />
-          <span className="text-xs font-semibold" style={{ color: "rgba(18,16,13,0.4)" }}>g</span>
+          <span className="text-xs font-semibold" style={{ color: "rgba(18,16,13,0.4)" }}>{unitFor(row.food)}</span>
         </div>
         {/* Remove */}
         {canRemove && (
@@ -672,7 +678,7 @@ export default function MealPlanSection({
       setManualFoods(prev => prev.map(f => {
         if (f.id !== editingMealId) return f;
         const idx = prev.findIndex(m => m.id === editingMealId);
-        const mealName = `Bữa ${idx + 1}: ` + filled.map(r => `${r.food.name} (${r.grams}g)`).join(" + ");
+        const mealName = `Bữa ${idx + 1}: ` + filled.map(r => `${r.food.name} (${r.grams}${unitFor(r.food)})`).join(" + ");
         return {
           ...f,
           name: mealName,
@@ -686,7 +692,7 @@ export default function MealPlanSection({
       setEditingMealId(null);
     } else {
       const mealOrder = manualFoods.length + 1;
-      const mealName = `Bữa ${mealOrder}: ` + filled.map(r => `${r.food.name} (${r.grams}g)`).join(" + ");
+      const mealName = `Bữa ${mealOrder}: ` + filled.map(r => `${r.food.name} (${r.grams}${unitFor(r.food)})`).join(" + ");
       setManualFoods(prev => [
         ...prev,
         {
