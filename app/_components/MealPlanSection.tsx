@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import type { NutritionResult } from "./DietForm";
 import { FOODS, type FoodItem } from "@/lib/foods-data";
 import { getCookingTip } from "@/lib/cooking-tips";
@@ -72,11 +72,19 @@ function newRow(): IngredientRow {
 // Nhóm đồ uống đo theo ml — hiển thị đơn vị "ml" thay vì "g" (1ml ≈ 1g)
 const LIQUID_TAGS: ReadonlySet<FoodItem["tag"]> = new Set(["beverage", "softdrink", "alcohol", "coffee"]);
 function unitFor(food: FoodItem | null): string {
-  return food && LIQUID_TAGS.has(food.tag) ? "ml" : "g";
+  if (!food) return "g";
+  if (food.unit) return food.unit; // vd trứng → 'quả'
+  return LIQUID_TAGS.has(food.tag) ? "ml" : "g";
 }
 
-function computeRowMacros(food: FoodItem, grams: number) {
-  const r = grams / 100;
+// Quy đổi số lượng nhập (theo đơn vị hiển thị) → gram để tính macro.
+// Thực phẩm đếm theo quả (gramsPerUnit) thì qty là số quả; còn lại qty chính là gram/ml.
+function toGrams(food: FoodItem, qty: number): number {
+  return food.gramsPerUnit ? qty * food.gramsPerUnit : qty;
+}
+
+function computeRowMacros(food: FoodItem, qty: number) {
+  const r = toGrams(food, qty) / 100;
   return {
     calories: Math.round(food.calories * r),
     protein: Math.round(food.protein * r),
@@ -434,6 +442,9 @@ function IngredientSearchRow({
   const macros = row.food ? computeRowMacros(row.food, row.grams) : null;
   const [gramsInput, setGramsInput] = useState(String(row.grams));
 
+  // Đồng bộ ô nhập khi số lượng bị đổi từ bên ngoài (vd chọn trứng → mặc định 1 quả)
+  useEffect(() => { setGramsInput(String(row.grams)); }, [row.grams]);
+
   return (
     <div className="space-y-1.5">
       <div className="flex gap-2 items-center">
@@ -468,7 +479,12 @@ function IngredientSearchRow({
                     {food.name}
                   </span>
                   <span className="text-xs ml-2" style={{ color: "rgba(18,16,13,0.4)" }}>
-                    {food.calories} kcal · P:{food.protein}g F:{food.fat}g C:{food.carbs}g /100{unitFor(food)}
+                    {food.gramsPerUnit
+                      ? (() => {
+                          const per = computeRowMacros(food, 1);
+                          return `${per.calories} kcal · P:${per.protein}g F:${per.fat}g C:${per.carbs}g /${unitFor(food)} (~${food.gramsPerUnit}g)`;
+                        })()
+                      : `${food.calories} kcal · P:${food.protein}g F:${food.fat}g C:${food.carbs}g /100${unitFor(food)}`}
                   </span>
                 </button>
               ))}
@@ -994,7 +1010,9 @@ export default function MealPlanSection({
                       }}
                       onSelect={(food) => {
                         setRows(prev =>
-                          prev.map(r => r.id === row.id ? { ...r, food, query: food.name } : r)
+                          prev.map(r => r.id === row.id
+                            ? { ...r, food, query: food.name, grams: food.gramsPerUnit ? 1 : r.grams }
+                            : r)
                         );
                         setActiveDropdown(null);
                       }}
