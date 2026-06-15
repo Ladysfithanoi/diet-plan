@@ -11,6 +11,7 @@ type BmrFormula = "mifflin" | "harris" | "pyramid";
 type ActivityLevel = "level1" | "level2" | "level3" | "level4";
 type WeightGoal = "lose" | "gain" | "maintain";
 type GoalInputMode = "target_weight" | "kg_to_lose" | "kg_to_gain";
+type LossSpeed = "slow" | "medium" | "fast";
 
 interface FormState {
   name: string;
@@ -23,6 +24,7 @@ interface FormState {
   bmrFormula: BmrFormula;
   activityLevel: ActivityLevel;
   weightGoal: WeightGoal;
+  lossSpeed: LossSpeed;
   goalInputMode: GoalInputMode;
   goalInputValue: string;
 }
@@ -96,11 +98,12 @@ function calcTDEE(bmr: number, level: ActivityLevel): number {
 function calcDER(
   tdee: number,
   goal: WeightGoal,
-  weight: number
+  weight: number,
+  lossRate: number
 ): { der: number; weeklyLoss: number | null; weeklyGain: number | null } {
   switch (goal) {
     case "lose": {
-      const weeklyLoss = weight * 0.01;
+      const weeklyLoss = weight * lossRate;
       const dailyDeficit = (weeklyLoss * 7700) / 7;
       return { der: tdee - dailyDeficit, weeklyLoss, weeklyGain: null };
     }
@@ -128,13 +131,14 @@ function calcMacros(
 function computeRoadmap(
   weight: number,
   goalInputMode: GoalInputMode,
-  goalInputValue: string
+  goalInputValue: string,
+  lossRate: number
 ): { totalToLose: number; weeksToGoal: number; daysToGoal: number; monthsToGoal: number } | null {
   const val = parseFloat(goalInputValue);
   if (isNaN(val) || val <= 0) return null;
   const totalToLose = goalInputMode === "target_weight" ? weight - val : val;
   if (totalToLose <= 0) return null;
-  const weeklyLoss = weight * 0.01;
+  const weeklyLoss = weight * lossRate;
   const weeksToGoal = Math.round(totalToLose / weeklyLoss);
   const daysToGoal = weeksToGoal * 7;
   const monthsToGoal = Math.round((weeksToGoal / 4) * 10) / 10;
@@ -171,6 +175,12 @@ const FORMULA_LABEL: Record<BmrFormula, string> = {
   pyramid: "Pyramid",
 };
 
+const LOSS_SPEED: Record<LossSpeed, { rate: number; label: string; percent: string }> = {
+  slow: { rate: 0.005, label: "Giảm chậm", percent: "0.5%" },
+  medium: { rate: 0.01, label: "Giảm vừa", percent: "1%" },
+  fast: { rate: 0.015, label: "Giảm nhanh", percent: "1.5%" },
+};
+
 const ACTIVITY_LABEL: Record<ActivityLevel, string> = {
   level1: "Tập tạ ≥3 buổi + <5.000 bước/ngày (×1.2)",
   level2: "Tập tạ ≥3 buổi + 5.000–6.999 bước/ngày (×1.4)",
@@ -189,6 +199,7 @@ const INITIAL_FORM: FormState = {
   bmrFormula: "mifflin",
   activityLevel: "level1",
   weightGoal: "lose",
+  lossSpeed: "medium",
   goalInputMode: "kg_to_lose",
   goalInputValue: "",
 };
@@ -329,10 +340,11 @@ export default function DietForm({ userName }: { userName: string }) {
     const a = parseInt(form.age, 10);
     const bmr = calcBMR(form.bmrFormula, form.gender, w, h, a);
     const tdee = calcTDEE(bmr, form.activityLevel);
-    const { der, weeklyLoss, weeklyGain } = calcDER(tdee, form.weightGoal, w);
+    const lossRate = LOSS_SPEED[form.lossSpeed].rate;
+    const { der, weeklyLoss, weeklyGain } = calcDER(tdee, form.weightGoal, w, lossRate);
     const { protein, fat, carbs } = calcMacros(h, der);
     const roadmap = form.weightGoal === "lose"
-      ? computeRoadmap(w, form.goalInputMode, form.goalInputValue)
+      ? computeRoadmap(w, form.goalInputMode, form.goalInputValue, lossRate)
       : null;
     const gainRoadmap = form.weightGoal === "gain"
       ? computeGainRoadmap(w, form.goalInputMode, form.goalInputValue)
@@ -415,7 +427,7 @@ export default function DietForm({ userName }: { userName: string }) {
     if (form.weightGoal !== "lose") return null;
     const w = parseFloat(form.weight);
     if (isNaN(w) || w < 30) return null;
-    return computeRoadmap(w, form.goalInputMode, form.goalInputValue);
+    return computeRoadmap(w, form.goalInputMode, form.goalInputValue, LOSS_SPEED[form.lossSpeed].rate);
   })();
 
   const liveGainRoadmap = (() => {
@@ -735,6 +747,34 @@ export default function DietForm({ userName }: { userName: string }) {
               {/* ── Goal roadmap inputs — only when "lose" ── */}
               {form.weightGoal === "lose" && (
                 <div className="sm:col-span-2 space-y-3">
+                  {/* Loss speed selector */}
+                  <div>
+                    <p className="dp-label">Tốc độ giảm cân</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(["slow", "medium", "fast"] as LossSpeed[]).map((speed) => {
+                        const active = form.lossSpeed === speed;
+                        return (
+                          <button
+                            key={speed}
+                            type="button"
+                            onClick={() => setForm((prev) => ({ ...prev, lossSpeed: speed }))}
+                            className="py-2.5 rounded-xl text-sm font-semibold transition-all flex flex-col items-center leading-tight"
+                            style={{
+                              border: active ? "1px solid #eb0915" : "1px solid rgba(18,16,13,0.15)",
+                              background: active ? "rgba(235,9,21,0.08)" : "#ffffff",
+                              color: active ? "#eb0915" : "rgba(18,16,13,0.65)",
+                            }}
+                          >
+                            {LOSS_SPEED[speed].label}
+                            <span className="text-xs font-medium" style={{ opacity: 0.7 }}>
+                              {LOSS_SPEED[speed].percent}/tuần
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Mode selector */}
                   <div>
                     <p className="dp-label">Nhập mục tiêu theo</p>
@@ -1004,7 +1044,7 @@ export default function DietForm({ userName }: { userName: string }) {
                   <span className="font-bold" style={{ color: "#eb0915" }}>
                     {liveRoadmap.monthsToGoal} tháng
                   </span>
-                  ) để giảm cân đạt mục tiêu với tốc độ an toàn 1%/tuần.
+                  ) để giảm cân đạt mục tiêu với tốc độ {LOSS_SPEED[form.lossSpeed].percent}/tuần.
                 </p>
               </div>
             ) : liveGainRoadmap ? (
