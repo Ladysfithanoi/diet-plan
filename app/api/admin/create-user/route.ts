@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { getAdminAuth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { ROLE_TRIAL, ROLE_USER, trialDeadlineFromNow } from "@/lib/trial";
 
 export async function POST(req: NextRequest) {
   const auth = await getAdminAuth();
@@ -10,8 +11,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body = await req.json() as { name?: string; email?: string; password?: string };
+    const body = await req.json() as { name?: string; email?: string; password?: string; role?: string };
     const { name, email, password } = body;
+    const role = body.role === ROLE_TRIAL ? ROLE_TRIAL : ROLE_USER;
 
     if (!name?.trim() || !email?.trim() || !password?.trim()) {
       return NextResponse.json({ error: "Vui lòng điền đầy đủ thông tin" }, { status: 400 });
@@ -34,12 +36,20 @@ export async function POST(req: NextRequest) {
         name: name.trim(),
         email: email.toLowerCase().trim(),
         password: hashedPassword,
-        role: "USER",
+        role,
+        trialExpiresAt: role === ROLE_TRIAL ? trialDeadlineFromNow() : null,
       },
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, trialExpiresAt: true, createdAt: true },
     });
 
-    return NextResponse.json({ ok: true, user });
+    return NextResponse.json({
+      ok: true,
+      user: {
+        ...user,
+        trialExpiresAt: user.trialExpiresAt ? user.trialExpiresAt.toISOString() : null,
+        createdAt: user.createdAt.toISOString(),
+      },
+    });
   } catch (error) {
     console.error("[create-user]", error);
     return NextResponse.json({ error: "Lỗi máy chủ, vui lòng thử lại" }, { status: 500 });

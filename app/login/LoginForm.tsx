@@ -8,11 +8,15 @@ interface LoginResponse {
   error?: string;
 }
 
-export default function LoginForm({ kicked }: { kicked: boolean }) {
+export default function LoginForm({ kicked, expired = false }: { kicked: boolean; expired?: boolean }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(
-    kicked ? "Tài khoản của bạn đang được đăng nhập ở một thiết bị khác!" : ""
+    kicked
+      ? "Tài khoản của bạn đang được đăng nhập ở một thiết bị khác!"
+      : expired
+        ? "Phiên trải nghiệm đã kết thúc. Vui lòng liên hệ Admin để kích hoạt lại tài khoản."
+        : ""
   );
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -217,8 +221,8 @@ export default function LoginForm({ kicked }: { kicked: boolean }) {
               <div
                 className="rounded-xl px-4 py-3 text-sm font-medium flex items-start gap-2"
                 style={{
-                  background: kicked ? "rgba(235,9,21,0.08)" : "rgba(235,9,21,0.05)",
-                  border: `1px solid rgba(235,9,21,${kicked ? "0.35" : "0.2"})`,
+                  background: kicked || expired ? "rgba(235,9,21,0.08)" : "rgba(235,9,21,0.05)",
+                  border: `1px solid rgba(235,9,21,${kicked || expired ? "0.35" : "0.2"})`,
                   color: "#eb0915",
                 }}
               >

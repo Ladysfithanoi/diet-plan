@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifySession, COOKIE_NAME } from "@/lib/jwt";
 import prisma from "@/lib/prisma";
+import { isTrialExpired, ROLE_TRIAL } from "@/lib/trial";
 import DietForm from "./_components/DietForm";
 
 export default async function Home() {
@@ -22,5 +23,19 @@ export default async function Home() {
     redirect("/login?kicked=1");
   }
 
-  return <DietForm userName={user.name} />;
+  // Phiên trải nghiệm đã hết hạn → đẩy về trang đăng nhập kèm thông báo
+  if (isTrialExpired(user.role, user.trialExpiresAt)) {
+    redirect("/login?expired=1");
+  }
+
+  return (
+    <DietForm
+      userName={user.name}
+      trialExpiresAt={
+        user.role === ROLE_TRIAL && user.trialExpiresAt
+          ? user.trialExpiresAt.toISOString()
+          : null
+      }
+    />
+  );
 }

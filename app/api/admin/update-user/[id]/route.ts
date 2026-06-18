@@ -50,12 +50,16 @@ export async function PUT(
     const updated = await prisma.user.update({
       where: { id },
       data: updateData,
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, trialExpiresAt: true, createdAt: true },
     });
 
     return NextResponse.json({
       ok: true,
-      user: { ...updated, createdAt: updated.createdAt.toISOString() },
+      user: {
+        ...updated,
+        trialExpiresAt: updated.trialExpiresAt ? updated.trialExpiresAt.toISOString() : null,
+        createdAt: updated.createdAt.toISOString(),
+      },
     });
   } catch {
     return NextResponse.json({ error: "Lỗi máy chủ, vui lòng thử lại" }, { status: 500 });

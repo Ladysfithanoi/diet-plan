@@ -9,12 +9,13 @@ export async function GET(_req: NextRequest) {
   }
 
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, trialExpiresAt: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
 
   const serialized = users.map((u: any) => ({
     ...u,
+    trialExpiresAt: u.trialExpiresAt ? new Date(u.trialExpiresAt).toISOString() : null,
     createdAt: u.createdAt ? new Date(u.createdAt).toISOString() : new Date().toISOString(),
     updatedAt: u.updatedAt ? new Date(u.updatedAt).toISOString() : new Date().toISOString(),
   }));

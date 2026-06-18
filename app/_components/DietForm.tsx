@@ -206,12 +206,63 @@ const INITIAL_FORM: FormState = {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function DietForm({ userName }: { userName: string }) {
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+export default function DietForm({
+  userName,
+  trialExpiresAt = null,
+}: {
+  userName: string;
+  trialExpiresAt?: string | null;
+}) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [result, setResult] = useState<NutritionResult | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // ── Đồng hồ đếm ngược cho phiên Trải nghiệm ──
+  const trialDeadline = trialExpiresAt ? new Date(trialExpiresAt).getTime() : null;
+  const [remainingMs, setRemainingMs] = useState<number | null>(
+    trialDeadline !== null ? Math.max(0, trialDeadline - Date.now()) : null
+  );
+  const [trialOver, setTrialOver] = useState(false);
+
+  useEffect(() => {
+    if (trialDeadline === null) return;
+
+    function tick() {
+      const left = trialDeadline! - Date.now();
+      setRemainingMs(Math.max(0, left));
+      if (left <= 0) setTrialOver(true);
+    }
+
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [trialDeadline]);
+
+  // Hết giờ trải nghiệm → tự đăng xuất rồi đẩy về trang đăng nhập kèm thông báo
+  useEffect(() => {
+    if (!trialOver) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await fetch("/api/auth/logout", { method: "POST" });
+      } catch {}
+      if (!cancelled) {
+        setTimeout(() => window.location.replace("/login?expired=1"), 4000);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [trialOver]);
 
   // Macro editor state
   const [macroP, setMacroP] = useState(0);
@@ -560,6 +611,42 @@ export default function DietForm({ userName }: { userName: string }) {
         </div>
       )}
 
+    {/* ── Thông báo hết phiên Trải nghiệm ── */}
+    {trialOver && (
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+        style={{ background: "rgba(18,16,13,0.6)", backdropFilter: "blur(3px)" }}
+      >
+        <div
+          className="w-full max-w-sm rounded-2xl p-7 text-center shadow-2xl"
+          style={{ background: "white", border: "1px solid rgba(18,16,13,0.08)" }}
+        >
+          <div
+            className="mx-auto mb-4 w-14 h-14 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(235,9,21,0.08)" }}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#eb0915" strokeWidth="2">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <h3 className="text-lg font-bold mb-1.5" style={{ color: "#12100d" }}>
+            Phiên trải nghiệm đã kết thúc
+          </h3>
+          <p className="text-sm leading-relaxed" style={{ color: "rgba(18,16,13,0.55)" }}>
+            Thời gian dùng thử 5 tiếng của bạn đã hết. Vui lòng liên hệ Admin để
+            kích hoạt lại tài khoản. Bạn sẽ được chuyển về trang đăng nhập…
+          </p>
+          <a
+            href="/login?expired=1"
+            className="inline-flex items-center justify-center w-full mt-5 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+            style={{ background: "#eb0915", color: "white" }}
+          >
+            Về trang đăng nhập
+          </a>
+        </div>
+      </div>
+    )}
+
     <div className="min-h-screen bg-white py-6 md:py-10 px-4">
       <div className="max-w-2xl mx-auto">
 
@@ -576,6 +663,23 @@ export default function DietForm({ userName }: { userName: string }) {
             <p className="mt-1 text-sm" style={{ color: "rgba(18,16,13,0.5)" }}>
               Máy tính dinh dưỡng chuyên sâu
             </p>
+            {/* Đồng hồ đếm ngược phiên Trải nghiệm */}
+            {remainingMs !== null && (
+              <div
+                className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold tabular-nums"
+                style={{
+                  background: "rgba(235,9,21,0.06)",
+                  border: "1px solid rgba(235,9,21,0.2)",
+                  color: "#eb0915",
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <span>Phiên trải nghiệm còn:</span>
+                <span className="font-bold">{formatCountdown(remainingMs)}</span>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button

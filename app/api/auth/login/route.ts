@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { signSession, COOKIE_NAME } from "@/lib/jwt";
+import { isTrialExpired } from "@/lib/trial";
 
 function generateUUID(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -43,6 +44,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Email hoặc mật khẩu không đúng" },
         { status: 401 }
+      );
+    }
+
+    // Tài khoản trải nghiệm đã hết hạn → không cho đăng nhập nữa
+    if (isTrialExpired(user.role, user.trialExpiresAt)) {
+      return NextResponse.json(
+        { error: "Phiên trải nghiệm đã kết thúc. Vui lòng liên hệ Admin để kích hoạt lại tài khoản." },
+        { status: 403 }
       );
     }
 

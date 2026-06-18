@@ -7,11 +7,36 @@ interface User {
   name: string;
   email: string;
   role: string;
+  trialExpiresAt?: string | null;
   createdAt: string;
 }
 
 interface Props {
   initialUsers: User[];
+}
+
+// ─── Role helpers ─────────────────────────────────────────────────────────────
+
+function roleLabel(role: string): string {
+  if (role === "ADMIN") return "Admin";
+  if (role === "TRIAL") return "Trải nghiệm";
+  return "User";
+}
+
+function roleBadgeStyle(role: string): React.CSSProperties {
+  if (role === "ADMIN") return { background: "rgba(235,9,21,0.08)", color: "#eb0915" };
+  if (role === "TRIAL") return { background: "rgba(217,119,6,0.1)", color: "#b45309" };
+  return { background: "rgba(18,16,13,0.06)", color: "rgba(18,16,13,0.55)" };
+}
+
+function trialStatus(user: User): { text: string; expired: boolean } | null {
+  if (user.role !== "TRIAL") return null;
+  if (!user.trialExpiresAt) return { text: "Đã hết hạn", expired: true };
+  const left = new Date(user.trialExpiresAt).getTime() - Date.now();
+  if (left <= 0) return { text: "Đã hết hạn", expired: true };
+  const h = Math.floor(left / 3_600_000);
+  const m = Math.floor((left % 3_600_000) / 60_000);
+  return { text: `Còn ${h}h${m.toString().padStart(2, "0")}p`, expired: false };
 }
 
 // ─── Shared UI helpers ────────────────────────────────────────────────────────
@@ -193,6 +218,82 @@ function EditModal({ user, onClose, onSaved }: EditModalProps) {
   );
 }
 
+// ─── Delete Confirm Modal ─────────────────────────────────────────────────────
+
+interface DeleteModalProps {
+  user: User;
+  deleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function DeleteModal({ user, deleting, onCancel, onConfirm }: DeleteModalProps) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: "rgba(18,16,13,0.5)", backdropFilter: "blur(2px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget && !deleting) onCancel(); }}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl p-6 shadow-2xl"
+        style={{ background: "white", border: "1px solid rgba(18,16,13,0.08)" }}
+      >
+        <div
+          className="mx-auto mb-4 w-12 h-12 rounded-full flex items-center justify-center"
+          style={{ background: "rgba(235,9,21,0.08)" }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#eb0915" strokeWidth="2">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>
+          </svg>
+        </div>
+        <h3 className="text-base font-bold text-center mb-1.5" style={{ color: "#12100d" }}>
+          Xóa tài khoản?
+        </h3>
+        <p className="text-sm text-center leading-relaxed mb-5" style={{ color: "rgba(18,16,13,0.55)" }}>
+          Bạn sắp xóa vĩnh viễn tài khoản{" "}
+          <span className="font-semibold" style={{ color: "#12100d" }}>{user.name}</span>{" "}
+          (<span style={{ color: "rgba(18,16,13,0.65)" }}>{user.email}</span>).
+          <br />Hành động này <span className="font-semibold" style={{ color: "#eb0915" }}>không thể hoàn tác</span>.
+        </p>
+
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={deleting}
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all"
+            style={{ border: "1px solid rgba(18,16,13,0.12)", color: "rgba(18,16,13,0.6)", background: "transparent" }}
+          >
+            Hủy
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+            style={{
+              background: deleting ? "rgba(235,9,21,0.55)" : "#eb0915",
+              color: "white",
+              cursor: deleting ? "not-allowed" : "pointer",
+            }}
+          >
+            {deleting ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round"/>
+                </svg>
+                Đang xóa...
+              </span>
+            ) : "Xóa tài khoản"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function AdminUsersClient({ initialUsers }: Props) {
@@ -211,16 +312,24 @@ export default function AdminUsersClient({ initialUsers }: Props) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<"USER" | "TRIAL">("USER");
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
   const [creating, setCreating] = useState(false);
 
   // Delete state
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Trial action state (reactivate / convert)
+  const [trialActionId, setTrialActionId] = useState<string | null>(null);
 
   // Edit modal state
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editSuccess, setEditSuccess] = useState("");
+
+  // Logout state
+  const [loggingOut, setLoggingOut] = useState(false);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -233,7 +342,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
       const res = await fetch("/api/admin/create-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), password }),
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), password, role }),
       });
       const data = await res.json() as { ok?: boolean; error?: string; user?: User };
 
@@ -247,8 +356,9 @@ export default function AdminUsersClient({ initialUsers }: Props) {
         // Nhảy đến trang cuối để thấy user vừa tạo
         setCurrentPage(Math.ceil((users.length + 1) / pageSize));
       }
-      setName(""); setEmail(""); setPassword("");
-      setFormSuccess(`Đã cấp tài khoản cho ${data.user?.name ?? email} thành công!`);
+      const createdRoleLabel = role === "TRIAL" ? "Trải nghiệm" : "User";
+      setName(""); setEmail(""); setPassword(""); setRole("USER");
+      setFormSuccess(`Đã cấp tài khoản ${createdRoleLabel} cho ${data.user?.name ?? email} thành công!`);
     } catch {
       setFormError("Lỗi kết nối, vui lòng thử lại");
     } finally {
@@ -256,9 +366,10 @@ export default function AdminUsersClient({ initialUsers }: Props) {
     }
   }
 
-  async function handleDelete(userId: string, userName: string) {
-    if (!confirm(`Xóa tài khoản "${userName}"? Hành động này không thể hoàn tác.`)) return;
-    setDeletingId(userId);
+  async function handleDelete() {
+    if (!deletingUser) return;
+    const userId = deletingUser.id;
+    setDeleting(true);
 
     try {
       const res = await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
@@ -274,10 +385,37 @@ export default function AdminUsersClient({ initialUsers }: Props) {
         }
         return next;
       });
+      setDeletingUser(null);
     } catch {
       alert("Lỗi kết nối, vui lòng thử lại");
     } finally {
-      setDeletingId(null);
+      setDeleting(false);
+    }
+  }
+
+  async function handleTrialAction(user: User, action: "reactivate" | "convert_to_user") {
+    setTrialActionId(user.id);
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string; user?: User };
+      if (!res.ok) { alert(data.error ?? "Không thể thực hiện thao tác"); return; }
+      if (data.user) {
+        setUsers((prev) => prev.map((u) => u.id === data.user!.id ? data.user! : u));
+        setEditSuccess(
+          action === "reactivate"
+            ? `Đã kích hoạt lại 5 tiếng trải nghiệm cho "${data.user.name}".`
+            : `Đã chuyển "${data.user.name}" sang tài khoản User chính thức.`
+        );
+        setTimeout(() => setEditSuccess(""), 4000);
+      }
+    } catch {
+      alert("Lỗi kết nối, vui lòng thử lại");
+    } finally {
+      setTrialActionId(null);
     }
   }
 
@@ -285,6 +423,16 @@ export default function AdminUsersClient({ initialUsers }: Props) {
     setUsers((prev) => prev.map((u) => u.id === updated.id ? updated : u));
     setEditSuccess(`Đã cập nhật tài khoản "${updated.name}" thành công!`);
     setTimeout(() => setEditSuccess(""), 4000);
+  }
+
+  async function handleLogout() {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.replace("/login");
+    }
   }
 
   return (
@@ -295,6 +443,16 @@ export default function AdminUsersClient({ initialUsers }: Props) {
           user={editingUser}
           onClose={() => setEditingUser(null)}
           onSaved={handleUserSaved}
+        />
+      )}
+
+      {/* Delete Confirm Modal */}
+      {deletingUser && (
+        <DeleteModal
+          user={deletingUser}
+          deleting={deleting}
+          onCancel={() => { if (!deleting) setDeletingUser(null); }}
+          onConfirm={handleDelete}
         />
       )}
 
@@ -322,13 +480,35 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                 Cấp và thu hồi quyền truy cập hệ thống
               </p>
             </div>
-            <a
-              href="/"
-              className="ml-auto text-sm font-medium px-4 py-2 rounded-xl transition-colors"
-              style={{ color: "rgba(18,16,13,0.55)", border: "1px solid rgba(18,16,13,0.12)", background: "white" }}
-            >
-              ← Xem giao diện thực đơn
-            </a>
+            <div className="ml-auto flex items-center gap-2">
+              <a
+                href="/"
+                className="text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+                style={{ color: "rgba(18,16,13,0.55)", border: "1px solid rgba(18,16,13,0.12)", background: "white" }}
+              >
+                ← Xem giao diện thực đơn
+              </a>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+                style={{
+                  color: "#eb0915",
+                  border: "1px solid rgba(235,9,21,0.25)",
+                  background: "rgba(235,9,21,0.05)",
+                  cursor: loggingOut ? "not-allowed" : "pointer",
+                  opacity: loggingOut ? 0.6 : 1,
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                  <polyline points="16 17 21 12 16 7"/>
+                  <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+                {loggingOut ? "Đang xuất..." : "Đăng xuất"}
+              </button>
+            </div>
           </div>
 
           {/* Global edit success */}
@@ -378,6 +558,47 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                   minLength={6}
                   className="dp-input"
                 />
+              </div>
+
+              {/* Cấp tài khoản: Vai trò */}
+              <div>
+                <label className="dp-label">Cấp tài khoản</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    { value: "USER", title: "User", desc: "Tài khoản chính thức, dùng vĩnh viễn" },
+                    { value: "TRIAL", title: "Trải nghiệm", desc: "Dùng thử 5 tiếng rồi tự khoá" },
+                  ] as const).map((opt) => {
+                    const active = role === opt.value;
+                    const accent = opt.value === "TRIAL" ? "217,119,6" : "235,9,21";
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => { setRole(opt.value); setFormError(""); setFormSuccess(""); }}
+                        className="text-left rounded-xl px-4 py-3 transition-all"
+                        style={{
+                          border: `1.5px solid ${active ? `rgba(${accent},0.6)` : "rgba(18,16,13,0.12)"}`,
+                          background: active ? `rgba(${accent},0.05)` : "white",
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+                            style={{ border: `1.5px solid ${active ? `rgb(${accent})` : "rgba(18,16,13,0.25)"}` }}
+                          >
+                            {active && <span className="w-2 h-2 rounded-full" style={{ background: `rgb(${accent})` }} />}
+                          </span>
+                          <span className="text-sm font-bold" style={{ color: active ? `rgb(${accent})` : "#12100d" }}>
+                            {opt.title}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs leading-snug" style={{ color: "rgba(18,16,13,0.5)" }}>
+                          {opt.desc}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {formError && <ErrorBox msg={formError} />}
@@ -466,19 +687,61 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                               {user.email}
                             </td>
                             <td className="px-6 py-3.5">
-                              <span
-                                className="text-xs font-bold px-2.5 py-1 rounded-full"
-                                style={
-                                  user.role === "ADMIN"
-                                    ? { background: "rgba(235,9,21,0.08)", color: "#eb0915" }
-                                    : { background: "rgba(18,16,13,0.06)", color: "rgba(18,16,13,0.55)" }
-                                }
-                              >
-                                {user.role}
-                              </span>
+                              <div className="flex flex-col items-start gap-1">
+                                <span
+                                  className="text-xs font-bold px-2.5 py-1 rounded-full"
+                                  style={roleBadgeStyle(user.role)}
+                                >
+                                  {roleLabel(user.role)}
+                                </span>
+                                {(() => {
+                                  const st = trialStatus(user);
+                                  if (!st) return null;
+                                  return (
+                                    <span
+                                      className="text-[11px] font-semibold"
+                                      style={{ color: st.expired ? "#eb0915" : "rgba(180,83,9,0.9)" }}
+                                    >
+                                      {st.text}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                             </td>
                             <td className="px-6 py-3.5">
-                              <div className="flex items-center justify-end gap-2">
+                              <div className="flex items-center justify-end gap-2 flex-wrap">
+                                {user.role === "TRIAL" && (
+                                  <>
+                                    <button
+                                      onClick={() => handleTrialAction(user, "reactivate")}
+                                      disabled={trialActionId === user.id}
+                                      className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                                      style={{
+                                        color: "#b45309",
+                                        border: "1px solid rgba(217,119,6,0.3)",
+                                        background: "rgba(217,119,6,0.06)",
+                                        cursor: trialActionId === user.id ? "wait" : "pointer",
+                                        opacity: trialActionId === user.id ? 0.6 : 1,
+                                      }}
+                                    >
+                                      Kích hoạt lại
+                                    </button>
+                                    <button
+                                      onClick={() => handleTrialAction(user, "convert_to_user")}
+                                      disabled={trialActionId === user.id}
+                                      className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                                      style={{
+                                        color: "#16a34a",
+                                        border: "1px solid rgba(34,197,94,0.3)",
+                                        background: "rgba(34,197,94,0.06)",
+                                        cursor: trialActionId === user.id ? "wait" : "pointer",
+                                        opacity: trialActionId === user.id ? 0.6 : 1,
+                                      }}
+                                    >
+                                      Chuyển User
+                                    </button>
+                                  </>
+                                )}
                                 <button
                                   onClick={() => { setEditingUser(user); setEditSuccess(""); }}
                                   className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
@@ -491,17 +754,16 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                                   Sửa
                                 </button>
                                 <button
-                                  onClick={() => handleDelete(user.id, user.name)}
-                                  disabled={deletingId === user.id}
+                                  onClick={() => setDeletingUser(user)}
                                   className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
                                   style={{
-                                    color: deletingId === user.id ? "rgba(18,16,13,0.3)" : "#eb0915",
-                                    border: `1px solid ${deletingId === user.id ? "rgba(18,16,13,0.1)" : "rgba(235,9,21,0.25)"}`,
-                                    background: deletingId === user.id ? "transparent" : "rgba(235,9,21,0.04)",
-                                    cursor: deletingId === user.id ? "not-allowed" : "pointer",
+                                    color: "#eb0915",
+                                    border: "1px solid rgba(235,9,21,0.25)",
+                                    background: "rgba(235,9,21,0.04)",
+                                    cursor: "pointer",
                                   }}
                                 >
-                                  {deletingId === user.id ? "Đang xóa..." : "Xóa"}
+                                  Xóa
                                 </button>
                               </div>
                             </td>
