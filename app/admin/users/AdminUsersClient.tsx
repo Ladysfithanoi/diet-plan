@@ -689,7 +689,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                             <td className="px-6 py-3.5">
                               <div className="flex flex-col items-start gap-1">
                                 <span
-                                  className="text-xs font-bold px-2.5 py-1 rounded-full"
+                                  className="text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap"
                                   style={roleBadgeStyle(user.role)}
                                 >
                                   {roleLabel(user.role)}
