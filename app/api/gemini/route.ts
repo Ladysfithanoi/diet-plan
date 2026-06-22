@@ -168,6 +168,47 @@ function buildNameOnlyUserPrompt(mealCount: number): string {
   return `Chọn tên thực phẩm thô cho ${mealCount} bữa ăn. JSON object với key meal_1 đến meal_${mealCount}. Chỉ JSON — không có text khác.`;
 }
 
+// ─── Fallback DB — dựng nameLists hợp lệ khi AI fail (parse lỗi / API chết) ────
+// Đảm bảo người dùng LUÔN nhận được thực đơn thay vì lỗi "không trả thực phẩm hợp lệ".
+function buildFallbackNameLists(
+  mealCount: number,
+  macros: { calories: number; protein: number; fat: number; carbs: number }
+): Record<string, string[]> {
+  const templates = getMealTemplates(mealCount);
+  const used = new Set<string>();
+
+  const isLowCalHighProtein = macros.calories < 1300 && macros.protein > 120;
+  const isHighCarbLowFat    = macros.carbs > 100 && macros.fat <= 60;
+  const proteinPool = shuffleFoods(
+    FOODS.filter(f =>
+      f.tag === 'protein' &&
+      (isLowCalHighProtein ? f.fat <= 5 : isHighCarbLowFat ? f.fat <= 8 : true)
+    )
+  );
+  const starchPool = shuffleFoods(FOODS.filter(f => f.tag === 'starch'));
+  const veggiePool = shuffleFoods(FOODS.filter(f => f.tag === 'veggie'));
+  const fruitPool  = shuffleFoods(FOODS.filter(f => f.tag === 'fruit'));
+
+  const take = (pool: FoodItem[], n: number): string[] => {
+    const out: string[] = [];
+    for (const f of pool) {
+      if (out.length >= n) break;
+      if (!used.has(f.name)) { out.push(f.name); used.add(f.name); }
+    }
+    return out;
+  };
+
+  const result: Record<string, string[]> = {};
+  for (let i = 0; i < mealCount; i++) {
+    const tmpl = templates[i];
+    const names = [...take(proteinPool, 1), ...take(starchPool, 1)];
+    if (tmpl.veggieGrams > 0) names.push(...take(veggiePool, 1));
+    if (tmpl.fruitGrams  > 0) names.push(...take(fruitPool, 1));
+    result[`meal_${i + 1}`] = names;
+  }
+  return result;
+}
+
 // ─── Parse Name-Only Response ─────────────────────────────────────────────────
 
 function parseNameOnlyResponse(
@@ -473,11 +514,22 @@ function mealSolutionToAiMeal(solution: MealSolution): AiMealRaw {
   let calories = 0, protein = 0, fat = 0, carbs = 0;
   const nameParts: string[] = [];
   for (const { food, grams } of solution.items) {
-    calories += food.calories * grams / 100;
-    protein  += food.protein  * grams / 100;
-    fat      += food.fat      * grams / 100;
-    carbs    += food.carbs    * grams / 100;
-    nameParts.push(`${food.name} ${grams}g`);
+    // Thực phẩm đếm theo đơn vị (vd trứng → 'quả'): làm tròn về số nguyên đơn vị,
+    // hiển thị "2 quả" và tính macro theo đúng khối lượng đã làm tròn.
+    let effGrams = grams;
+    let label: string;
+    if (food.gramsPerUnit && food.unit) {
+      const units = Math.max(1, Math.round(grams / food.gramsPerUnit));
+      effGrams = units * food.gramsPerUnit;
+      label = `${food.name} ${units} ${food.unit}`;
+    } else {
+      label = `${food.name} ${Math.round(grams)}g`;
+    }
+    calories += food.calories * effGrams / 100;
+    protein  += food.protein  * effGrams / 100;
+    fat      += food.fat      * effGrams / 100;
+    carbs    += food.carbs    * effGrams / 100;
+    nameParts.push(label);
   }
   return {
     mealName: solution.mealName,
@@ -583,24 +635,36 @@ export async function POST(req: NextRequest) {
     const systemInstruction = buildNameOnlySystemInstruction(mealCount, macros, preferences);
     const userPrompt        = buildNameOnlyUserPrompt(mealCount);
 
-    let rawNames  = await callGemini(userPrompt, systemInstruction);
-    let nameLists = parseNameOnlyResponse(rawNames, mealCount);
+    const isEmpty = (nl: Record<string, string[]> | null) =>
+      !nl || Object.values(nl).every(arr => arr.length === 0);
 
-    if (!nameLists || Object.values(nameLists).every(arr => arr.length === 0)) {
-      console.log('[Solver] Name-only response invalid, retrying...');
-      rawNames  = await callGemini(
-        `${userPrompt}\n\nLần trước JSON sai format. Trả về ĐÚNG: {"meal_1":[...],...,"meal_${mealCount}":[...]}`,
-        systemInstruction
-      );
+    let nameLists: Record<string, string[]> | null = null;
+    try {
+      let rawNames = await callGemini(userPrompt, systemInstruction);
       nameLists = parseNameOnlyResponse(rawNames, mealCount);
+
+      if (isEmpty(nameLists)) {
+        console.log('[Solver] Name-only response invalid, retrying...');
+        rawNames = await callGemini(
+          `${userPrompt}\n\nLần trước JSON sai format. Trả về ĐÚNG: {"meal_1":[...],...,"meal_${mealCount}":[...]}`,
+          systemInstruction
+        );
+        nameLists = parseNameOnlyResponse(rawNames, mealCount);
+      }
+    } catch (aiErr) {
+      console.log('[Solver] Gemini lỗi, chuyển sang thực đơn dự phòng từ DB:', aiErr);
+      nameLists = null;
     }
 
-    if (!nameLists) {
-      throw new Error("AI không trả về danh sách tên thực phẩm hợp lệ");
+    // AI fail (parse lỗi hoặc API chết) → dựng thực đơn hợp lệ từ DB thay vì báo lỗi
+    if (isEmpty(nameLists)) {
+      console.log('[Solver] Dùng fallback DB để đảm bảo luôn có thực đơn');
+      nameLists = buildFallbackNameLists(mealCount, macros);
     }
+    const finalLists = nameLists as Record<string, string[]>;
 
     // Step 2: 10-step sequential solver
-    const solutions = runCoreEngine(nameLists, macros, mealCount);
+    const solutions = runCoreEngine(finalLists, macros, mealCount);
 
     // Step 3: Convert → AiMealRaw (macro từ DB × gram / 100)
     const meals: AiMealRaw[] = solutions.map(mealSolutionToAiMeal);
