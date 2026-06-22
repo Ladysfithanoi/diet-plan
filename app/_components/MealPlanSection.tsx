@@ -4,6 +4,34 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { NutritionResult } from "./DietForm";
 import { FOODS, type FoodItem } from "@/lib/foods-data";
 import { getCookingTip } from "@/lib/cooking-tips";
+import { encodePlan, type SharePlan, type SlimMeal } from "@/lib/share";
+
+// ─── 7 ngày trong tuần ─────────────────────────────────────────────────────────
+
+export const DAY_LABELS = [
+  "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ Nhật",
+] as const;
+
+// Mỗi ngày có thực đơn riêng, hoàn toàn độc lập với các ngày còn lại.
+interface DayPlan {
+  aiMeals: AiMeal[] | null;
+  manualFoods: ManualFood[];
+}
+
+function makeEmptyDays(): DayPlan[] {
+  return DAY_LABELS.map(() => ({ aiMeals: null, manualFoods: [] }));
+}
+
+function dayHasData(d: DayPlan): boolean {
+  return (!!d.aiMeals && d.aiMeals.length > 0) || d.manualFoods.length > 0;
+}
+
+// Ngày kèm nhãn — dùng cho PDF & link chia sẻ
+interface PdfDay {
+  label: string;
+  aiMeals: AiMeal[] | null;
+  manualFoods: ManualFood[];
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -184,11 +212,10 @@ function AiMealCard({ meal }: { meal: AiMeal }) {
 // ─── PdfTemplate (rendered off-screen for html2canvas) ────────────────────────
 
 function PdfTemplate({
-  result, aiMeals, manualFoods, date,
+  result, days, date,
 }: {
   result: NutritionResult;
-  aiMeals: AiMeal[] | null;
-  manualFoods: ManualFood[];
+  days: PdfDay[];
   date: string;
 }) {
   const GOAL_LABEL: Record<string, string> = {
@@ -218,26 +245,6 @@ function PdfTemplate({
   const tdCenter: React.CSSProperties = { ...td, textAlign: "center" };
   const tdBold: React.CSSProperties = { ...td, fontWeight: 700 };
 
-  // Grand total across all AI meals
-  const aiGrand = aiMeals
-    ? aiMeals.reduce(
-        (a, m) => ({
-          cal: a.cal + m.calories,
-          p: a.p + m.protein,
-          f: a.f + m.fat,
-          c: a.c + m.carbs,
-        }),
-        { cal: 0, p: 0, f: 0, c: 0 }
-      )
-    : null;
-
-  const manualTotal = manualFoods.reduce(
-    (a, f) => ({
-      cal: a.cal + f.calories, p: a.p + f.protein, f: a.f + f.fat, c: a.c + f.carbs,
-    }),
-    { cal: 0, p: 0, f: 0, c: 0 }
-  );
-
   return (
     <div style={{ background: "#ffffff", fontFamily: "Montserrat, sans-serif", color: "#12100d" }}>
       {/* ── Header ── */}
@@ -260,6 +267,7 @@ function PdfTemplate({
             label: "Thông số",
             value: `${result.gender === "male" ? "Nam" : "Nữ"} · ${result.age}t · ${result.height}cm · ${result.weight}kg`,
           },
+          { label: "Số ngày thực đơn", value: `${days.length} ngày` },
         ].map((item) => (
           <div key={item.label}>
             <div style={{ fontSize: "9px", color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "4px" }}>
@@ -302,99 +310,139 @@ function PdfTemplate({
         </div>
       </div>
 
-      {/* ── AI Meal table (flat — one row per meal) ── */}
-      {aiMeals && aiMeals.length > 0 && (
-        <div style={{ padding: "0 40px 24px" }}>
-          <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "10px" }}>
-            Kế hoạch thực đơn
-          </div>
-          <div className="w-full overflow-x-auto">
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ ...th, whiteSpace: "nowrap" }}>Bữa ăn</th>
-                <th style={thDark}>Thực đơn chi tiết</th>
-                <th style={{ ...thDark, textAlign: "center" }}>Calo</th>
-                <th style={{ ...thDark, textAlign: "center" }}>P(g)</th>
-                <th style={{ ...thDark, textAlign: "center" }}>F(g)</th>
-                <th style={{ ...thDark, textAlign: "center" }}>C(g)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {aiMeals.map((meal, i) => {
-                const tip = getCookingTip(meal.name);
-                return (
-                  <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
-                    <td style={{ ...tdBold, color: "#eb0915", whiteSpace: "nowrap" }}>{meal.mealName}</td>
-                    <td style={td}>
-                      {meal.name}
-                      {tip && (
-                        <span style={{ display: "block", fontSize: "10px", color: "rgba(18,16,13,0.45)", marginTop: "4px", fontStyle: "italic" }}>
-                          👨‍🍳 Gợi ý chế biến: {tip}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ ...tdCenter, fontWeight: 600 }}>{Math.round(meal.calories)}</td>
-                    <td style={tdCenter}>{Math.round(meal.protein)}</td>
-                    <td style={tdCenter}>{Math.round(meal.fat)}</td>
-                    <td style={tdCenter}>{Math.round(meal.carbs)}</td>
-                  </tr>
-                );
-              })}
-              {aiGrand && (
-                <tr style={{ background: "rgba(235,9,21,0.05)" }}>
-                  <td style={{ ...tdBold, color: "#eb0915" }} colSpan={2}>Tổng cả ngày</td>
-                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(aiGrand.cal)}</td>
-                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(aiGrand.p)}</td>
-                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(aiGrand.f)}</td>
-                  <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(aiGrand.c)}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          </div>
-        </div>
-      )}
+      {/* ── Mỗi ngày một mục riêng ── */}
+      {days.map((day, dayIdx) => {
+        const aiMeals = day.aiMeals;
+        const manualFoods = day.manualFoods;
 
-      {/* ── Manual foods table ── */}
-      {manualFoods.length > 0 && (
-        <div style={{ padding: "0 40px 24px" }}>
-          <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "10px" }}>
-            Thực đơn tự nhập
+        const aiGrand = aiMeals
+          ? aiMeals.reduce(
+              (a, m) => ({ cal: a.cal + m.calories, p: a.p + m.protein, f: a.f + m.fat, c: a.c + m.carbs }),
+              { cal: 0, p: 0, f: 0, c: 0 }
+            )
+          : null;
+        const manualTotal = manualFoods.reduce(
+          (a, f) => ({ cal: a.cal + f.calories, p: a.p + f.protein, f: a.f + f.fat, c: a.c + f.carbs }),
+          { cal: 0, p: 0, f: 0, c: 0 }
+        );
+
+        return (
+          <div
+            key={dayIdx}
+            style={{ pageBreakInside: "avoid", borderTop: "2px solid rgba(18,16,13,0.08)" }}
+          >
+            {/* Tên ngày */}
+            <div style={{ padding: "18px 40px 4px" }}>
+              <span style={{
+                display: "inline-block",
+                background: "#12100d",
+                color: "#ffffff",
+                fontSize: "14px",
+                fontWeight: 800,
+                letterSpacing: "0.02em",
+                padding: "6px 16px",
+                borderRadius: "999px",
+              }}>
+                📅 {day.label}
+              </span>
+            </div>
+
+            {/* AI Meal table */}
+            {aiMeals && aiMeals.length > 0 && (
+              <div style={{ padding: "10px 40px 18px" }}>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "10px" }}>
+                  Kế hoạch thực đơn
+                </div>
+                <div className="w-full overflow-x-auto">
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...th, whiteSpace: "nowrap" }}>Bữa ăn</th>
+                      <th style={thDark}>Thực đơn chi tiết</th>
+                      <th style={{ ...thDark, textAlign: "center" }}>Calo</th>
+                      <th style={{ ...thDark, textAlign: "center" }}>P(g)</th>
+                      <th style={{ ...thDark, textAlign: "center" }}>F(g)</th>
+                      <th style={{ ...thDark, textAlign: "center" }}>C(g)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aiMeals.map((meal, i) => {
+                      const tip = getCookingTip(meal.name);
+                      return (
+                        <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
+                          <td style={{ ...tdBold, color: "#eb0915", whiteSpace: "nowrap" }}>{meal.mealName}</td>
+                          <td style={td}>
+                            {meal.name}
+                            {tip && (
+                              <span style={{ display: "block", fontSize: "10px", color: "rgba(18,16,13,0.45)", marginTop: "4px", fontStyle: "italic" }}>
+                                👨‍🍳 Gợi ý chế biến: {tip}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ ...tdCenter, fontWeight: 600 }}>{Math.round(meal.calories)}</td>
+                          <td style={tdCenter}>{Math.round(meal.protein)}</td>
+                          <td style={tdCenter}>{Math.round(meal.fat)}</td>
+                          <td style={tdCenter}>{Math.round(meal.carbs)}</td>
+                        </tr>
+                      );
+                    })}
+                    {aiGrand && (
+                      <tr style={{ background: "rgba(235,9,21,0.05)" }}>
+                        <td style={{ ...tdBold, color: "#eb0915" }} colSpan={2}>Tổng cả ngày</td>
+                        <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(aiGrand.cal)}</td>
+                        <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(aiGrand.p)}</td>
+                        <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(aiGrand.f)}</td>
+                        <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(aiGrand.c)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+                </div>
+              </div>
+            )}
+
+            {/* Manual foods table */}
+            {manualFoods.length > 0 && (
+              <div style={{ padding: "0 40px 18px" }}>
+                <div style={{ fontSize: "10px", fontWeight: 700, color: "rgba(18,16,13,0.38)", textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: "10px" }}>
+                  Thực đơn tự nhập
+                </div>
+                <div className="w-full overflow-x-auto">
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Món ăn</th>
+                      <th style={{ ...th, textAlign: "center" }}>Calo</th>
+                      <th style={{ ...th, textAlign: "center" }}>P(g)</th>
+                      <th style={{ ...th, textAlign: "center" }}>F(g)</th>
+                      <th style={{ ...th, textAlign: "center" }}>C(g)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {manualFoods.map((food, i) => (
+                      <tr key={food.id} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
+                        <td style={td}>{food.name}</td>
+                        <td style={{ ...tdCenter, fontWeight: 600 }}>{Math.round(food.calories)}</td>
+                        <td style={tdCenter}>{Math.round(food.protein)}</td>
+                        <td style={tdCenter}>{Math.round(food.fat)}</td>
+                        <td style={tdCenter}>{Math.round(food.carbs)}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: "rgba(235,9,21,0.04)" }}>
+                      <td style={{ ...tdBold, color: "#eb0915" }}>Tổng ngày</td>
+                      <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(manualTotal.cal)}</td>
+                      <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(manualTotal.p)}</td>
+                      <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(manualTotal.f)}</td>
+                      <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(manualTotal.c)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                </div>
+              </div>
+            )}
           </div>
-          <div className="w-full overflow-x-auto">
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={th}>Món ăn</th>
-                <th style={{ ...th, textAlign: "center" }}>Calo</th>
-                <th style={{ ...th, textAlign: "center" }}>P(g)</th>
-                <th style={{ ...th, textAlign: "center" }}>F(g)</th>
-                <th style={{ ...th, textAlign: "center" }}>C(g)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {manualFoods.map((food, i) => (
-                <tr key={food.id} style={{ background: i % 2 === 0 ? "#fff" : "rgba(18,16,13,0.018)" }}>
-                  <td style={td}>{food.name}</td>
-                  <td style={{ ...tdCenter, fontWeight: 600 }}>{Math.round(food.calories)}</td>
-                  <td style={tdCenter}>{Math.round(food.protein)}</td>
-                  <td style={tdCenter}>{Math.round(food.fat)}</td>
-                  <td style={tdCenter}>{Math.round(food.carbs)}</td>
-                </tr>
-              ))}
-              <tr style={{ background: "rgba(235,9,21,0.04)" }}>
-                <td style={{ ...tdBold, color: "#eb0915" }}>Tổng ngày</td>
-                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(manualTotal.cal)}</td>
-                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(manualTotal.p)}</td>
-                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(manualTotal.f)}</td>
-                <td style={{ ...tdCenter, fontWeight: 700, color: "#eb0915" }}>{Math.round(manualTotal.c)}</td>
-              </tr>
-            </tbody>
-          </table>
-          </div>
-        </div>
-      )}
+        );
+      })}
 
       {/* ── Footer ── */}
       <div style={{
@@ -593,14 +641,57 @@ export default function MealPlanSection({
   const [aiLoading, setAiLoading] = useState(false);
   const [aiCooldown, setAiCooldown] = useState(0); // seconds remaining after success
   const [aiError, setAiError] = useState<string | null>(null);
-  const [aiMeals, setAiMeals] = useState<AiMeal[] | null>(null);
 
-  const [manualFoods, setManualFoods] = useState<ManualFood[]>([]);
+  // ── 7 ngày độc lập ──
+  const [days, setDays] = useState<DayPlan[]>(makeEmptyDays);
+  const [activeDay, setActiveDay] = useState(0);
+
+  // Thực đơn của ngày đang mở
+  const aiMeals = days[activeDay].aiMeals;
+  const manualFoods = days[activeDay].manualFoods;
+
+  // Setter chỉ ghi vào ngày đang mở — giữ nguyên chữ ký cũ để phần code dưới không đổi
+  const setAiMeals = (val: AiMeal[] | null) =>
+    setDays((prev) =>
+      prev.map((d, i) => (i === activeDay ? { ...d, aiMeals: val } : d))
+    );
+  const setManualFoods = (
+    updater: ManualFood[] | ((prev: ManualFood[]) => ManualFood[])
+  ) =>
+    setDays((prev) =>
+      prev.map((d, i) =>
+        i === activeDay
+          ? {
+              ...d,
+              manualFoods:
+                typeof updater === "function"
+                  ? (updater as (p: ManualFood[]) => ManualFood[])(d.manualFoods)
+                  : updater,
+            }
+          : d
+      )
+    );
+
   const [rows, setRows] = useState<IngredientRow[]>(() => [newRow()]);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
 
   const [pdfLoading, setPdfLoading] = useState(false);
+
+  // ── Xuất / chia sẻ ──
+  const [pdfDaySel, setPdfDaySel] = useState<boolean[]>(() => DAY_LABELS.map(() => true));
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // Đổi ngày → reset trình soạn thảo (rows/đang sửa) để không lẫn dữ liệu giữa các ngày
+  function switchDay(idx: number) {
+    if (idx === activeDay) return;
+    setActiveDay(idx);
+    setRows([newRow()]);
+    setEditingMealId(null);
+    setActiveDropdown(null);
+    setAiError(null);
+  }
 
   // Bữa đang được chỉnh sửa bị loại khỏi tracking để PT thấy ngân sách thực
   const totals = manualFoods
@@ -666,7 +757,9 @@ export default function MealPlanSection({
     }
     // Phải include cả macro sống: nếu thiếu, closure đóng băng ở giá trị mount
     // (P/F/C=0 vì useEffect cha chưa kịp set) → API nhận target macro = 0.
-  }, [result, mealCount, liveDer, liveProtein, liveFat, liveCarbs]);
+    // activeDay: để setAiMeals ghi đúng vào ngày đang mở (không bị stale closure).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, mealCount, liveDer, liveProtein, liveFat, liveCarbs, activeDay]);
 
   // ── Manual food ────────────────────────────────────────────────────────────
 
@@ -795,11 +888,104 @@ export default function MealPlanSection({
     }
   }
 
-  const hasMealData = (aiMeals && aiMeals.length > 0) || manualFoods.length > 0;
   const today = new Date().toLocaleDateString("vi-VN");
+
+  // Ngày nào đã có thực đơn (AI hoặc tự nhập)
+  const anyDayHasData = days.some(dayHasData);
+
+  // Những ngày được chọn để xuất PDF / chia sẻ (và phải có dữ liệu)
+  const includedDays: PdfDay[] = days
+    .map((d, i) => ({ label: DAY_LABELS[i], aiMeals: d.aiMeals, manualFoods: d.manualFoods, _i: i }))
+    .filter((d) => pdfDaySel[d._i] && dayHasData(days[d._i]))
+    .map(({ label, aiMeals, manualFoods }) => ({ label, aiMeals, manualFoods }));
+
+  // ── Chia sẻ link cho khách (nhúng thẳng vào URL, không cần database) ──
+  function buildSharePlan(): SharePlan {
+    const aiToSlim = (m: AiMeal): SlimMeal => ({
+      mealName: m.mealName, name: m.name,
+      calories: m.calories, protein: m.protein, fat: m.fat, carbs: m.carbs,
+    });
+    const manualToSlim = (f: ManualFood): SlimMeal => ({
+      name: f.name, calories: f.calories, protein: f.protein, fat: f.fat, carbs: f.carbs,
+    });
+    return {
+      v: 1,
+      client: {
+        name: result.name, gender: result.gender, age: result.age,
+        height: result.height, weight: result.weight, weightGoal: result.weightGoal,
+        der: result.der, protein: result.protein, fat: result.fat, carbs: result.carbs,
+        date: today,
+      },
+      days: includedDays.map((d) => ({
+        label: d.label,
+        aiMeals: (d.aiMeals ?? []).map(aiToSlim),
+        manualFoods: d.manualFoods.map(manualToSlim),
+      })),
+    };
+  }
+
+  function handleCreateShareLink() {
+    if (includedDays.length === 0) return;
+    const url = `${window.location.origin}/p#${encodePlan(buildSharePlan())}`;
+    setShareLink(url);
+    setShareCopied(false);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(
+        () => setShareCopied(true),
+        () => {}
+      );
+    }
+  }
 
   return (
     <div id="meal-plan-section" className="mt-6 space-y-4">
+      {/* ── Bộ chọn ngày trong tuần (mỗi ngày 1 thực đơn riêng) ── */}
+      <div
+        className="bg-white rounded-2xl shadow-sm p-4"
+        style={{ border: "1px solid rgba(18,16,13,0.1)" }}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>
+            Thực đơn theo ngày
+          </p>
+          <span className="text-xs font-semibold" style={{ color: "#eb0915" }}>
+            Đang soạn: {DAY_LABELS[activeDay]}
+          </span>
+        </div>
+        <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+          {DAY_LABELS.map((label, i) => {
+            const active = i === activeDay;
+            const filled = dayHasData(days[i]);
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => switchDay(i)}
+                className="relative py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.97]"
+                style={{
+                  border: active ? "1px solid #eb0915" : "1px solid rgba(18,16,13,0.15)",
+                  background: active ? "#eb0915" : "#ffffff",
+                  color: active ? "#ffffff" : "#12100d",
+                }}
+              >
+                {label}
+                {filled && (
+                  <span
+                    className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full"
+                    style={{ background: active ? "#ffffff" : "#eb0915" }}
+                    aria-label="đã có thực đơn"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs mt-3" style={{ color: "rgba(18,16,13,0.4)" }}>
+          Mỗi ngày là một thực đơn riêng biệt, không ảnh hưởng tới các ngày khác. Chấm đỏ =
+          ngày đã có thực đơn.
+        </p>
+      </div>
+
       {/* ── Tab container ── */}
       <div
         className="bg-white rounded-2xl shadow-sm"
@@ -1194,32 +1380,157 @@ export default function MealPlanSection({
         </div>
       </div>
 
-      {/* ── PDF export ── */}
-      {hasMealData && (
-        <button
-          type="button"
-          onClick={handleExportPDF}
-          disabled={pdfLoading}
-          className="w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]"
-          style={{
-            background: pdfLoading ? "rgba(18,16,13,0.55)" : "#12100d",
-            color: "#ffffff",
-            cursor: pdfLoading ? "not-allowed" : "pointer",
-          }}
+      {/* ── Xuất PDF / Chia sẻ link (chọn ngày) ── */}
+      {anyDayHasData && (
+        <div
+          className="bg-white rounded-2xl shadow-sm p-5 space-y-4"
+          style={{ border: "1px solid rgba(18,16,13,0.1)" }}
         >
-          {pdfLoading ? (
-            <><Spinner light /> Đang tạo PDF...</>
-          ) : (
-            <>
+          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: "rgba(18,16,13,0.35)" }}>
+            Chọn ngày để in PDF / gửi cho khách
+          </p>
+
+          {/* Checkbox chọn ngày — chỉ bật cho ngày đã có thực đơn */}
+          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+            {DAY_LABELS.map((label, i) => {
+              const filled = dayHasData(days[i]);
+              const checked = filled && pdfDaySel[i];
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  disabled={!filled}
+                  onClick={() =>
+                    setPdfDaySel((prev) => prev.map((v, j) => (j === i ? !v : v)))
+                  }
+                  className="py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                  style={{
+                    border: checked ? "1px solid #eb0915" : "1px solid rgba(18,16,13,0.15)",
+                    background: checked ? "rgba(235,9,21,0.08)" : "#ffffff",
+                    color: !filled ? "rgba(18,16,13,0.25)" : checked ? "#eb0915" : "rgba(18,16,13,0.55)",
+                    cursor: filled ? "pointer" : "not-allowed",
+                  }}
+                >
+                  {checked ? "✓ " : ""}{label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <button
+              type="button"
+              onClick={handleExportPDF}
+              disabled={pdfLoading || includedDays.length === 0}
+              className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]"
+              style={{
+                background: pdfLoading || includedDays.length === 0 ? "rgba(18,16,13,0.4)" : "#12100d",
+                color: "#ffffff",
+                cursor: pdfLoading || includedDays.length === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              {pdfLoading ? (
+                <><Spinner light /> Đang tạo PDF...</>
+              ) : (
+                <>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  Tải PDF ({includedDays.length} ngày)
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCreateShareLink}
+              disabled={includedDays.length === 0}
+              className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]"
+              style={{
+                background: includedDays.length === 0 ? "rgba(235,9,21,0.4)" : "#eb0915",
+                color: "#ffffff",
+                cursor: includedDays.length === 0 ? "not-allowed" : "pointer",
+              }}
+            >
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
+                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
               </svg>
-              Tải PDF thực đơn
-            </>
-          )}
-        </button>
+              Tạo link gửi khách
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal hiển thị link chia sẻ ── */}
+      {shareLink && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+          style={{ background: "rgba(18,16,13,0.55)", backdropFilter: "blur(3px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShareLink(null); }}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl p-6 shadow-2xl"
+            style={{ background: "#ffffff", border: "1px solid rgba(18,16,13,0.08)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold" style={{ color: "#12100d" }}>
+                Link thực đơn cho khách
+              </h3>
+              <button
+                onClick={() => setShareLink(null)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg"
+                style={{ color: "rgba(18,16,13,0.4)", background: "rgba(18,16,13,0.05)" }}
+                aria-label="Đóng"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <p className="text-sm mb-3" style={{ color: "rgba(18,16,13,0.55)" }}>
+              Gửi link này cho khách — họ mở ra là xem được thực đơn {includedDays.length} ngày,
+              không cần đăng nhập.
+            </p>
+
+            <div
+              className="rounded-xl px-3 py-2.5 mb-3 break-all text-xs"
+              style={{ background: "rgba(18,16,13,0.04)", border: "1px solid rgba(18,16,13,0.1)", color: "#12100d", maxHeight: "120px", overflowY: "auto" }}
+            >
+              {shareLink}
+            </div>
+
+            <div className="flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  if (navigator.clipboard?.writeText) {
+                    navigator.clipboard.writeText(shareLink).then(
+                      () => setShareCopied(true),
+                      () => {}
+                    );
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98]"
+                style={{ background: shareCopied ? "#12100d" : "#eb0915", color: "#ffffff" }}
+              >
+                {shareCopied ? "✓ Đã sao chép" : "Sao chép link"}
+              </button>
+              <a
+                href={shareLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-center transition-all active:scale-[0.98]"
+                style={{ border: "1px solid rgba(18,16,13,0.15)", color: "rgba(18,16,13,0.7)", background: "transparent" }}
+              >
+                Xem thử
+              </a>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Hidden PDF template (off-screen for html2canvas) ── */}
@@ -1237,8 +1548,7 @@ export default function MealPlanSection({
       >
         <PdfTemplate
           result={result}
-          aiMeals={aiMeals}
-          manualFoods={manualFoods}
+          days={includedDays}
           date={today}
         />
       </div>
