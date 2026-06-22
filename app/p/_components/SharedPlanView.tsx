@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { decodePlan, type SharePlan, type SlimMeal } from "@/lib/share";
+import { useState } from "react";
+import type { SharePlan, SlimMeal } from "@/lib/share";
 import { getCookingTip } from "@/lib/cooking-tips";
 
 const GOAL_LABEL: Record<string, string> = {
@@ -15,54 +15,8 @@ function sumMeals(meals: SlimMeal[]) {
   );
 }
 
-export default function SharedPlanPage() {
-  const [plan, setPlan] = useState<SharePlan | null>(null);
-  const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
+export default function SharedPlanView({ plan }: { plan: SharePlan }) {
   const [activeDay, setActiveDay] = useState(0);
-
-  useEffect(() => {
-    const hash = window.location.hash.startsWith("#")
-      ? window.location.hash.slice(1)
-      : "";
-    if (!hash) { setStatus("error"); return; }
-    const decoded = decodePlan(hash);
-    if (!decoded || decoded.days.length === 0) { setStatus("error"); return; }
-    setPlan(decoded);
-    setStatus("ok");
-  }, []);
-
-  if (status === "loading") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <p className="text-sm" style={{ color: "rgba(18,16,13,0.5)" }}>Đang tải thực đơn…</p>
-      </div>
-    );
-  }
-
-  if (status === "error" || !plan) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white px-6">
-        <div className="text-center max-w-sm">
-          <div
-            className="mx-auto mb-4 w-14 h-14 rounded-full flex items-center justify-center"
-            style={{ background: "rgba(235,9,21,0.08)" }}
-          >
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#eb0915" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-          </div>
-          <h1 className="text-lg font-bold mb-1.5" style={{ color: "#12100d" }}>
-            Không đọc được thực đơn
-          </h1>
-          <p className="text-sm" style={{ color: "rgba(18,16,13,0.55)" }}>
-            Link có thể đã bị cắt ngắn hoặc sao chép thiếu. Vui lòng nhờ huấn luyện viên gửi lại
-            đường link đầy đủ.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   const { client, days } = plan;
   const day = days[Math.min(activeDay, days.length - 1)];
 

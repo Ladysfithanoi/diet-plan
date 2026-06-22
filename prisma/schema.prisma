@@ -17,3 +17,10 @@ model User {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 }
+
+// Link thực đơn chia sẻ cho khách. id chính là slug trên URL (vd "nguyen-van-a-x7k2p9").
+model SharedPlan {
+  id        String   @id
+  data      Json
+  createdAt DateTime @default(now())
+}

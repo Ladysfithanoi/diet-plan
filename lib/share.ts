@@ -1,8 +1,8 @@
 // ─── Shareable plan payload ────────────────────────────────────────────────────
 //
-// Toàn bộ thực đơn (7 ngày) được nén thẳng vào URL (#hash) — KHÔNG cần database,
-// không cần đăng nhập. Trang công khai /p tự giải mã hash để khách xem thực đơn.
-// Chỉ lưu dữ liệu hiển thị (slim) để link gọn nhất có thể.
+// Thực đơn (tối đa 7 ngày) được lưu vào bảng SharedPlan rồi chia sẻ qua link ngắn
+// dạng /p/<ten-khach>-<mã>. Trang công khai /p/[slug] đọc bản ghi để khách xem.
+// Chỉ lưu dữ liệu hiển thị (slim) cho gọn.
 
 export interface SlimMeal {
   mealName?: string; // chỉ AI mới có (vd "Bữa 1 - Sáng (7:00)")
@@ -37,32 +37,30 @@ export interface SharePlan {
   days: ShareDay[];
 }
 
-// ─── base64url <-> UTF-8 (an toàn cho tiếng Việt) ──────────────────────────────
-
-function toBase64Url(json: string): string {
-  const bytes = new TextEncoder().encode(json);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+// Slug tiếng Việt: bỏ dấu, viết thường, thay ký tự lạ bằng "-"
+export function slugifyName(name: string): string {
+  const base = name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "d")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/g, "");
+  return base || "khach";
 }
 
-function fromBase64Url(s: string): string {
-  const padded = s.replace(/-/g, "+").replace(/_/g, "/");
-  const bin = atob(padded);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-export function encodePlan(plan: SharePlan): string {
-  return toBase64Url(JSON.stringify(plan));
-}
-
-export function decodePlan(encoded: string): SharePlan | null {
-  try {
-    const parsed = JSON.parse(fromBase64Url(encoded)) as SharePlan;
-    if (!parsed || parsed.v !== 1 || !Array.isArray(parsed.days)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+// Kiểm tra payload hợp lệ (dùng ở API trước khi lưu)
+export function isValidSharePlan(p: unknown): p is SharePlan {
+  if (!p || typeof p !== "object") return false;
+  const plan = p as SharePlan;
+  return (
+    plan.v === 1 &&
+    !!plan.client &&
+    typeof plan.client.name === "string" &&
+    Array.isArray(plan.days) &&
+    plan.days.length > 0
+  );
 }

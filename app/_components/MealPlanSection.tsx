@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { NutritionResult } from "./DietForm";
 import { FOODS, type FoodItem } from "@/lib/foods-data";
 import { getCookingTip } from "@/lib/cooking-tips";
-import { encodePlan, type SharePlan, type SlimMeal } from "@/lib/share";
+import type { SharePlan, SlimMeal } from "@/lib/share";
 
 // ─── 7 ngày trong tuần ─────────────────────────────────────────────────────────
 
@@ -682,6 +682,8 @@ export default function MealPlanSection({
   const [pdfDaySel, setPdfDaySel] = useState<boolean[]>(() => DAY_LABELS.map(() => true));
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   // Đổi ngày → reset trình soạn thảo (rows/đang sửa) để không lẫn dữ liệu giữa các ngày
   function switchDay(idx: number) {
@@ -924,16 +926,39 @@ export default function MealPlanSection({
     };
   }
 
-  function handleCreateShareLink() {
-    if (includedDays.length === 0) return;
-    const url = `${window.location.origin}/p#${encodePlan(buildSharePlan())}`;
-    setShareLink(url);
-    setShareCopied(false);
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).then(
-        () => setShareCopied(true),
-        () => {}
+  async function handleCreateShareLink() {
+    if (includedDays.length === 0 || shareLoading) return;
+    setShareLoading(true);
+    setShareError(null);
+    try {
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: buildSharePlan() }),
+      });
+      if (res.status === 401) {
+        const e = (await res.json()) as { kicked?: boolean };
+        window.location.replace(e.kicked ? "/login?kicked=1" : "/login");
+        return;
+      }
+      const data = (await res.json()) as { slug?: string; error?: string };
+      if (!res.ok || !data.slug) throw new Error(data.error ?? "Không tạo được link");
+
+      const url = `${window.location.origin}/p/${data.slug}`;
+      setShareLink(url);
+      setShareCopied(false);
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).then(
+          () => setShareCopied(true),
+          () => {}
+        );
+      }
+    } catch (err) {
+      setShareError(
+        err instanceof Error ? err.message : "Không tạo được link, vui lòng thử lại"
       );
+    } finally {
+      setShareLoading(false);
     }
   }
 
@@ -1446,21 +1471,39 @@ export default function MealPlanSection({
             <button
               type="button"
               onClick={handleCreateShareLink}
-              disabled={includedDays.length === 0}
+              disabled={includedDays.length === 0 || shareLoading}
               className="flex-1 py-3.5 rounded-2xl font-bold text-base flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]"
               style={{
-                background: includedDays.length === 0 ? "rgba(235,9,21,0.4)" : "#eb0915",
+                background: includedDays.length === 0 || shareLoading ? "rgba(235,9,21,0.4)" : "#eb0915",
                 color: "#ffffff",
-                cursor: includedDays.length === 0 ? "not-allowed" : "pointer",
+                cursor: includedDays.length === 0 || shareLoading ? "not-allowed" : "pointer",
               }}
             >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-              </svg>
-              Tạo link gửi khách
+              {shareLoading ? (
+                <><Spinner light /> Đang tạo link...</>
+              ) : (
+                <>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                    <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  </svg>
+                  Tạo link gửi khách
+                </>
+              )}
             </button>
           </div>
+
+          {shareError && (
+            <div
+              className="rounded-xl px-4 py-3 text-sm flex items-start gap-2"
+              style={{ background: "rgba(235,9,21,0.06)", border: "1px solid rgba(235,9,21,0.2)", color: "#eb0915" }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-0.5 flex-shrink-0">
+                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              {shareError}
+            </div>
+          )}
         </div>
       )}
 
