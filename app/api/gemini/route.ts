@@ -29,6 +29,25 @@ function findExactFood(name: string): FoodItem | null {
   return FOODS.find(f => f.name.trim().toLowerCase() === q) ?? null;
 }
 
+// Quy đổi grams "lý thuyết" → khối lượng THỰC TẾ sau khi làm tròn theo đơn vị đếm
+// (vd trứng tính theo 'quả', 1 quả = 55g). Engine PHẢI tính macro trên chính con số
+// này để khớp 100% với những gì hiển thị cho khách — nếu không, vòng tinh chỉnh sẽ
+// hội tụ trên gram lẻ rồi phần hiển thị làm tròn lại khiến tổng ngày lệch khỏi mục tiêu.
+function effectiveGrams(food: FoodItem, grams: number): number {
+  if (grams <= 0) return 0;
+  if (food.gramsPerUnit && food.unit) {
+    const units = Math.max(1, Math.round(grams / food.gramsPerUnit));
+    return units * food.gramsPerUnit;
+  }
+  return grams;
+}
+
+// Bước tinh chỉnh: với thực phẩm đếm theo đơn vị (trứng) phải nhảy nguyên 1 đơn vị,
+// vì nhích vài gram sẽ làm tròn về cùng số quả → hiển thị không đổi → loop kẹt.
+function tuneStep(food: FoodItem, baseStep: number): number {
+  return food.gramsPerUnit && food.unit ? food.gramsPerUnit : baseStep;
+}
+
 // ─── Meal Time Labels ─────────────────────────────────────────────────────────
 
 const MEAL_TIMES: Record<number, string[]> = {
@@ -311,10 +330,11 @@ function runCoreEngine(
     let cal = 0, pro = 0, fat = 0, car = 0;
     for (const its of mealItems) {
       for (const { food, grams } of its) {
-        cal += food.calories * grams / 100;
-        pro += food.protein  * grams / 100;
-        fat += food.fat      * grams / 100;
-        car += food.carbs    * grams / 100;
+        const g = effectiveGrams(food, grams); // đo trên khối lượng thực hiển thị
+        cal += food.calories * g / 100;
+        pro += food.protein  * g / 100;
+        fat += food.fat      * g / 100;
+        car += food.carbs    * g / 100;
       }
     }
     return { cal, pro, fat, car };
@@ -489,11 +509,17 @@ function runCoreEngine(
 
     if (proErr > 0.05) {
       const it = getOrAdd(lastMainIdx, 'protein', protFB);
-      if (it && it.food.protein > 0) it.grams = Math.max(0, it.grams + (pro < macros.protein ? 5 : -5));
+      if (it && it.food.protein > 0) {
+        const step = tuneStep(it.food, 5);
+        it.grams = Math.max(0, it.grams + (pro < macros.protein ? step : -step));
+      }
     }
     if (carErr > 0.05) {
       const it = getOrAdd(lastMainIdx, 'starch', starchFB);
-      if (it && it.food.carbs > 0) it.grams = Math.max(0, it.grams + (car < macros.carbs ? 5 : -5));
+      if (it && it.food.carbs > 0) {
+        const step = tuneStep(it.food, 5);
+        it.grams = Math.max(0, it.grams + (car < macros.carbs ? step : -step));
+      }
     }
     if (fatErr > 0.05 && oilFood && oilFood.fat > 0) {
       const it = getOrAdd(lastMainIdx, 'fat', oilFood);
@@ -516,12 +542,11 @@ function mealSolutionToAiMeal(solution: MealSolution): AiMealRaw {
   for (const { food, grams } of solution.items) {
     // Thực phẩm đếm theo đơn vị (vd trứng → 'quả'): làm tròn về số nguyên đơn vị,
     // hiển thị "2 quả" và tính macro theo đúng khối lượng đã làm tròn.
-    let effGrams = grams;
+    // effectiveGrams dùng CHUNG với engine để hiển thị và tính toán luôn khớp nhau.
+    const effGrams = effectiveGrams(food, grams);
     let label: string;
     if (food.gramsPerUnit && food.unit) {
-      const units = Math.max(1, Math.round(grams / food.gramsPerUnit));
-      effGrams = units * food.gramsPerUnit;
-      label = `${food.name} ${units} ${food.unit}`;
+      label = `${food.name} ${Math.round(effGrams / food.gramsPerUnit)} ${food.unit}`;
     } else {
       label = `${food.name} ${Math.round(grams)}g`;
     }
