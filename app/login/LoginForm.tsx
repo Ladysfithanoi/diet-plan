@@ -95,7 +95,7 @@ export default function LoginForm({ kicked, expired = false }: { kicked: boolean
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4 py-12"
-      style={{ background: "#ffffff" }}
+      style={{ background: "#F6F2EA" }}
     >
       <div className="w-full max-w-sm">
 
@@ -103,21 +103,21 @@ export default function LoginForm({ kicked, expired = false }: { kicked: boolean
         <div className="text-center mb-8">
           <div
             className="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4"
-            style={{ background: "#eb0915" }}
+            style={{ background: "#14110E" }}
           >
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
               <path
                 d="M12 2C9 2 6 4.5 6 8c0 2.5 1.5 4.5 3 5.5V20a1 1 0 0 0 2 0v-1h2v1a1 1 0 0 0 2 0v-6.5c1.5-1 3-3 3-5.5 0-3.5-3-6-6-6z"
-                fill="white"
+                fill="#F6F2EA"
                 opacity="0.9"
               />
-              <path d="M10 13.5v3M14 13.5v3" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.6"/>
+              <path d="M10 13.5v3M14 13.5v3" stroke="#F6F2EA" strokeWidth="1.5" strokeLinecap="round" opacity="0.6"/>
             </svg>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight" style={{ color: "#12100d" }}>
+          <h1 className="text-2xl font-bold tracking-tight" style={{ color: "#14110E" }}>
             Diet Plan
           </h1>
-          <p className="text-sm mt-1" style={{ color: "rgba(18,16,13,0.45)" }}>
+          <p className="text-sm mt-1" style={{ color: "rgba(20,17,14,0.45)" }}>
             Đăng nhập để sử dụng máy tính dinh dưỡng
           </p>
         </div>
@@ -125,7 +125,7 @@ export default function LoginForm({ kicked, expired = false }: { kicked: boolean
         {/* Form Card */}
         <div
           className="rounded-2xl p-6 shadow-sm"
-          style={{ border: "1px solid rgba(18,16,13,0.1)", background: "#ffffff" }}
+          style={{ border: "1px solid rgba(20,17,14,0.1)", background: "#F6F2EA" }}
         >
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>
 
@@ -176,7 +176,7 @@ export default function LoginForm({ kicked, expired = false }: { kicked: boolean
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2"
-                  style={{ color: "rgba(18,16,13,0.35)" }}
+                  style={{ color: "rgba(20,17,14,0.35)" }}
                   tabIndex={-1}
                   aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
                 >
@@ -201,15 +201,15 @@ export default function LoginForm({ kicked, expired = false }: { kicked: boolean
               <div
                 className="rounded-xl px-4 py-3 text-sm font-medium text-center"
                 style={{
-                  background: "rgba(22,163,74,0.08)",
-                  border: "1px solid rgba(22,163,74,0.3)",
-                  color: "#15803d",
+                  background: "rgba(92,110,72,0.08)",
+                  border: "1px solid rgba(92,110,72,0.3)",
+                  color: "#5C6E48",
                 }}
               >
                 Đăng nhập thành công!{" "}
                 <a
                   href={successDest}
-                  style={{ color: "#15803d", fontWeight: 700, textDecoration: "underline" }}
+                  style={{ color: "#5C6E48", fontWeight: 700, textDecoration: "underline" }}
                 >
                   Nhấn đây để vào trang →
                 </a>
@@ -221,9 +221,9 @@ export default function LoginForm({ kicked, expired = false }: { kicked: boolean
               <div
                 className="rounded-xl px-4 py-3 text-sm font-medium flex items-start gap-2"
                 style={{
-                  background: kicked || expired ? "rgba(235,9,21,0.08)" : "rgba(235,9,21,0.05)",
-                  border: `1px solid rgba(235,9,21,${kicked || expired ? "0.35" : "0.2"})`,
-                  color: "#eb0915",
+                  background: kicked || expired ? "rgba(181,101,30,0.08)" : "rgba(181,101,30,0.05)",
+                  border: `1px solid rgba(181,101,30,${kicked || expired ? "0.35" : "0.2"})`,
+                  color: "#B5651E",
                 }}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 mt-0.5">
@@ -241,8 +241,8 @@ export default function LoginForm({ kicked, expired = false }: { kicked: boolean
               disabled={loading}
               className="w-full py-3 rounded-xl font-bold text-base tracking-wide transition-all active:scale-[0.98] mt-2"
               style={{
-                background: loading ? "rgba(235,9,21,0.55)" : "#eb0915",
-                color: "#ffffff",
+                background: loading ? "rgba(20,17,14,0.55)" : "#14110E",
+                color: "#F6F2EA",
                 cursor: loading ? "not-allowed" : "pointer",
                 // Eliminates WebKit's 300ms tap-delay on iOS Safari so the
                 // button responds instantly on first touch without double-tap.
@@ -269,7 +269,7 @@ export default function LoginForm({ kicked, expired = false }: { kicked: boolean
         </div>
 
         {/* Footer hint */}
-        <p className="text-center text-xs mt-5" style={{ color: "rgba(18,16,13,0.3)" }}>
+        <p className="text-center text-xs mt-5" style={{ color: "rgba(20,17,14,0.3)" }}>
           Diet Plan © {new Date().getFullYear()} · Phần mềm quản lý dinh dưỡng
         </p>
 

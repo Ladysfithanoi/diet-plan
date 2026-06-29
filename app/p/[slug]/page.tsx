@@ -36,16 +36,16 @@ export default async function SharedPlanPage({
         <div className="text-center max-w-sm">
           <div
             className="mx-auto mb-4 w-14 h-14 rounded-full flex items-center justify-center"
-            style={{ background: "rgba(235,9,21,0.08)" }}
+            style={{ background: "rgba(181,101,30,0.08)" }}
           >
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#eb0915" strokeWidth="2">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#B5651E" strokeWidth="2">
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
           </div>
-          <h1 className="text-lg font-bold mb-1.5" style={{ color: "#12100d" }}>
+          <h1 className="text-lg font-bold mb-1.5" style={{ color: "#14110E" }}>
             Không tìm thấy thực đơn
           </h1>
-          <p className="text-sm" style={{ color: "rgba(18,16,13,0.55)" }}>
+          <p className="text-sm" style={{ color: "rgba(20,17,14,0.55)" }}>
             Link có thể đã hết hạn hoặc sai. Vui lòng nhờ huấn luyện viên gửi lại đường link mới.
           </p>
         </div>

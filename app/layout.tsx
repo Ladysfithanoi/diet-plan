@@ -1,10 +1,27 @@
 import type { Metadata } from "next";
-import { Montserrat } from "next/font/google";
+import { Be_Vietnam_Pro, Source_Serif_4, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const montserrat = Montserrat({
-  variable: "--font-montserrat",
-  subsets: ["latin"],
+// Be Vietnam Pro — sans thiết kế riêng cho tiếng Việt, dùng cho UI + body
+const beVietnamPro = Be_Vietnam_Pro({
+  variable: "--font-be-vietnam",
+  subsets: ["latin", "vietnamese"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
+
+// Source Serif 4 — serif editorial cho headline, title, pull quote (có italic)
+const sourceSerif = Source_Serif_4({
+  variable: "--font-source-serif",
+  subsets: ["latin", "vietnamese"],
+  style: ["normal", "italic"],
+  display: "swap",
+});
+
+// JetBrains Mono — mono cho số liệu (kcal, kg, %), code, metadata
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["latin", "vietnamese"],
   display: "swap",
 });
 
@@ -19,7 +36,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className={`${montserrat.variable} h-full antialiased`}>
+    <html
+      lang="vi"
+      className={`${beVietnamPro.variable} ${sourceSerif.variable} ${jetbrainsMono.variable} h-full antialiased`}
+    >
       <body className="min-h-full flex flex-col bg-background text-foreground">
         {children}
       </body>
