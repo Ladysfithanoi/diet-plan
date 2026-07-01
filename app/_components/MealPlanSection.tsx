@@ -741,7 +741,13 @@ export default function MealPlanSection({
       if (!data.result) throw new Error("Gemini không trả về nội dung");
       // Slice là tuyến phòng thủ cuối — loại bỏ bữa thừa dù AI có vượt rào
       const meals = parseAiResponse(data.result).slice(0, mealCount);
-      setAiMeals(meals);
+      // Mỗi ngày chỉ giữ MỘT loại thực đơn: tạo AI thì xoá thực đơn thủ công
+      // của ngày đó, tránh cả 2 cùng lọt vào PDF / link gửi khách.
+      setDays((prev) =>
+        prev.map((d, i) =>
+          i === activeDay ? { ...d, aiMeals: meals, manualFoods: [] } : d
+        )
+      );
     } catch (err) {
       setAiError(err instanceof Error ? err.message : "Đã xảy ra lỗi, vui lòng thử lại");
     } finally {
@@ -768,6 +774,10 @@ export default function MealPlanSection({
   function handleConfirmMeal() {
     const filled = rows.filter((r): r is IngredientRow & { food: FoodItem } => r.food !== null);
     if (filled.length === 0) return;
+
+    // Mỗi ngày chỉ giữ MỘT loại thực đơn: thêm bữa thủ công thì xoá thực đơn AI
+    // của ngày đó, tránh cả 2 cùng lọt vào PDF / link gửi khách.
+    if (aiMeals) setAiMeals(null);
 
     const total = filled.reduce(
       (acc, row) => {
