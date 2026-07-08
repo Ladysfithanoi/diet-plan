@@ -684,6 +684,8 @@ export default function MealPlanSection({
   const [shareCopied, setShareCopied] = useState(false);
   const [shareLoading, setShareLoading] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
 
   // Đổi ngày → reset trình soạn thảo (rows/đang sửa) để không lẫn dữ liệu giữa các ngày
   function switchDay(idx: number) {
@@ -957,6 +959,7 @@ export default function MealPlanSection({
       const url = `${window.location.origin}/p/${data.slug}`;
       setShareLink(url);
       setShareCopied(false);
+      setQrDataUrl(null);
       if (navigator.clipboard?.writeText) {
         navigator.clipboard.writeText(url).then(
           () => setShareCopied(true),
@@ -969,6 +972,26 @@ export default function MealPlanSection({
       );
     } finally {
       setShareLoading(false);
+    }
+  }
+
+  // Tạo mã QR từ link (client-side, không gửi link ra dịch vụ ngoài)
+  async function handleGenerateQr() {
+    if (!shareLink || qrLoading) return;
+    setQrLoading(true);
+    try {
+      const QRCode = (await import("qrcode")).default;
+      const dataUrl = await QRCode.toDataURL(shareLink, {
+        width: 512,
+        margin: 2,
+        errorCorrectionLevel: "M",
+        color: { dark: "#14110E", light: "#F6F2EA" },
+      });
+      setQrDataUrl(dataUrl);
+    } catch {
+      setShareError("Không tạo được mã QR, vui lòng thử lại");
+    } finally {
+      setQrLoading(false);
     }
   }
 
@@ -1522,7 +1545,7 @@ export default function MealPlanSection({
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center px-4"
           style={{ background: "rgba(20,17,14,0.55)", backdropFilter: "blur(3px)" }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShareLink(null); }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setShareLink(null); setQrDataUrl(null); } }}
         >
           <div
             className="w-full max-w-md rounded-2xl p-6 shadow-2xl"
@@ -1533,7 +1556,7 @@ export default function MealPlanSection({
                 Link thực đơn cho khách
               </h3>
               <button
-                onClick={() => setShareLink(null)}
+                onClick={() => { setShareLink(null); setQrDataUrl(null); }}
                 className="w-7 h-7 flex items-center justify-center rounded-lg"
                 style={{ color: "rgba(20,17,14,0.4)", background: "rgba(20,17,14,0.05)" }}
                 aria-label="Đóng"
@@ -1582,6 +1605,52 @@ export default function MealPlanSection({
                 Xem thử
               </a>
             </div>
+
+            {/* ── Mã QR: khách quét là mở link, khỏi lo link gãy khi copy ── */}
+            {!qrDataUrl ? (
+              <button
+                type="button"
+                onClick={handleGenerateQr}
+                disabled={qrLoading}
+                className="w-full mt-2.5 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                style={{
+                  border: "1px solid rgba(20,17,14,0.15)",
+                  color: "rgba(20,17,14,0.7)",
+                  background: "transparent",
+                  cursor: qrLoading ? "wait" : "pointer",
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" /><line x1="14" y1="14" x2="14" y2="17" />
+                  <line x1="17" y1="14" x2="21" y2="14" /><line x1="21" y1="17" x2="21" y2="21" /><line x1="14" y1="21" x2="17" y2="21" />
+                </svg>
+                {qrLoading ? "Đang tạo mã QR…" : "Tạo mã QR"}
+              </button>
+            ) : (
+              <div className="mt-3 flex flex-col items-center">
+                <p className="text-xs mb-2 text-center" style={{ color: "rgba(20,17,14,0.55)" }}>
+                  Khách dùng camera điện thoại quét mã là mở được thực đơn.
+                </p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={qrDataUrl}
+                  alt="Mã QR thực đơn"
+                  width={200}
+                  height={200}
+                  className="rounded-xl"
+                  style={{ border: "1px solid rgba(20,17,14,0.1)", background: "#F6F2EA" }}
+                />
+                <a
+                  href={qrDataUrl}
+                  download={`thuc-don-qr-${shareLink.split("/p/")[1] ?? "khach"}.png`}
+                  className="w-full mt-3 py-2.5 rounded-xl text-sm font-bold text-center transition-all active:scale-[0.98]"
+                  style={{ background: "#B5651E", color: "#F6F2EA" }}
+                >
+                  Tải ảnh mã QR
+                </a>
+              </div>
+            )}
           </div>
         </div>
       )}
