@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { getAdminAuth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { ROLE_TRIAL, ROLE_USER, trialDeadlineFromNow } from "@/lib/trial";
+import { sendEmail, buildWelcomeEmail } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   const auth = await getAdminAuth();
@@ -42,8 +43,23 @@ export async function POST(req: NextRequest) {
       select: { id: true, name: true, email: true, role: true, trialExpiresAt: true, createdAt: true },
     });
 
+    // Best-effort welcome email with the login credentials. A failed/skipped
+    // send must never break account creation — the admin still gets the account.
+    const origin = new URL(req.url).origin;
+    const emailResult = await sendEmail({
+      to: user.email,
+      ...buildWelcomeEmail({
+        fullName: user.name,
+        email: user.email,
+        password: password.trim(),
+        loginUrl: `${origin}/login`,
+        roleLabel: role === ROLE_TRIAL ? "Trải nghiệm" : "User",
+      }),
+    });
+
     return NextResponse.json({
       ok: true,
+      emailed: emailResult.sent,
       user: {
         ...user,
         trialExpiresAt: user.trialExpiresAt ? user.trialExpiresAt.toISOString() : null,

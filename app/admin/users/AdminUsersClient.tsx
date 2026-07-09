@@ -344,7 +344,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), email: email.trim(), password, role }),
       });
-      const data = await res.json() as { ok?: boolean; error?: string; user?: User };
+      const data = await res.json() as { ok?: boolean; error?: string; user?: User; emailed?: boolean };
 
       if (!res.ok) {
         setFormError(data.error ?? "Đã có lỗi xảy ra");
@@ -357,8 +357,14 @@ export default function AdminUsersClient({ initialUsers }: Props) {
         setCurrentPage(Math.ceil((users.length + 1) / pageSize));
       }
       const createdRoleLabel = role === "TRIAL" ? "Trải nghiệm" : "User";
+      const createdEmail = email;
       setName(""); setEmail(""); setPassword(""); setRole("USER");
-      setFormSuccess(`Đã cấp tài khoản ${createdRoleLabel} cho ${data.user?.name ?? email} thành công!`);
+      setFormSuccess(
+        `Đã cấp tài khoản ${createdRoleLabel} cho ${data.user?.name ?? createdEmail} thành công!` +
+          (data.emailed
+            ? ` Thông tin đăng nhập đã được gửi tới ${createdEmail}.`
+            : " (Chưa gửi được email thông báo — kiểm tra cấu hình email.)")
+      );
     } catch {
       setFormError("Lỗi kết nối, vui lòng thử lại");
     } finally {

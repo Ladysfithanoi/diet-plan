@@ -194,6 +194,15 @@ export default function LoginForm({ kicked, expired = false }: { kicked: boolean
                   )}
                 </button>
               </div>
+              <div className="flex justify-end mt-1.5">
+                <a
+                  href="/forgot-password"
+                  className="text-xs font-medium"
+                  style={{ color: "#B5651E" }}
+                >
+                  Quên mật khẩu?
+                </a>
+              </div>
             </div>
 
             {/* Success fallback — shown only when navigation is silently blocked */}
