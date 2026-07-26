@@ -5,7 +5,7 @@ import type { NutritionResult } from "./DietForm";
 import { FOODS, type FoodItem } from "@/lib/foods-data";
 import { getCookingTip } from "@/lib/cooking-tips";
 import type { SharePlan, SlimMeal } from "@/lib/share";
-import AddFoodModal, { type SavedFood } from "./AddFoodModal";
+import type { SavedFood } from "./AddFoodModal";
 
 // ─── 7 ngày trong tuần ─────────────────────────────────────────────────────────
 
@@ -636,12 +636,15 @@ export default function MealPlanSection({
   liveFat,
   liveCarbs,
   liveDer,
+  customFoods,
 }: {
   result: NutritionResult;
   liveProtein: number;
   liveFat: number;
   liveCarbs: number;
   liveDer: number;
+  /** Món do người dùng tự thêm — nạp ở DietForm, gộp vào ô tìm nguyên liệu */
+  customFoods: SavedFood[];
 }) {
   const pdfRef = useRef<HTMLDivElement>(null);
   // Synchronous ref-based lock — set BEFORE any setState so no race condition
@@ -687,20 +690,6 @@ export default function MealPlanSection({
   const [rows, setRows] = useState<IngredientRow[]>(() => [newRow()]);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
-
-  // ── Thư viện món custom (do người dùng tự thêm, dùng chung cả app) ──
-  const [customFoods, setCustomFoods] = useState<SavedFood[]>([]);
-  const [showAddFood, setShowAddFood] = useState(false);
-  const [addFoodQuery, setAddFoodQuery] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/foods")
-      .then((r) => (r.ok ? r.json() : { foods: [] }))
-      .then((d) => { if (!cancelled) setCustomFoods(d.foods ?? []); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
 
   const [pdfLoading, setPdfLoading] = useState(false);
 
@@ -1304,31 +1293,16 @@ export default function MealPlanSection({
                   ))}
                 </div>
 
-                <div className="flex items-center gap-4 flex-wrap">
-                  {rows.length < 5 && (
-                    <button
-                      type="button"
-                      onClick={() => setRows(prev => [...prev, newRow()])}
-                      className="text-sm font-semibold"
-                      style={{ color: "#B5651E" }}
-                    >
-                      + Thêm nguyên liệu ({rows.length}/5)
-                    </button>
-                  )}
+                {rows.length < 5 && (
                   <button
                     type="button"
-                    onClick={() => {
-                      // Gợi ý sẵn từ khoá đang gõ ở ô tìm chưa chọn được món
-                      const pending = rows.find(r => !r.food && r.query.trim());
-                      setAddFoodQuery(pending?.query.trim() ?? "");
-                      setShowAddFood(true);
-                    }}
+                    onClick={() => setRows(prev => [...prev, newRow()])}
                     className="text-sm font-semibold"
-                    style={{ color: "#3A5567" }}
+                    style={{ color: "#B5651E" }}
                   >
-                    ＋ Thêm món mới vào thư viện
+                    + Thêm nguyên liệu ({rows.length}/5)
                   </button>
-                </div>
+                )}
 
                 {/* Meal total preview */}
                 {(() => {
@@ -1695,42 +1669,6 @@ export default function MealPlanSection({
             )}
           </div>
         </div>
-      )}
-
-      {/* ── Modal thêm món mới vào thư viện chung ── */}
-      {showAddFood && (
-        <AddFoodModal
-          initialQuery={addFoodQuery}
-          customFoods={customFoods}
-          onClose={() => setShowAddFood(false)}
-          onDeleted={(id) => {
-            setCustomFoods(prev => prev.filter(f => f.id !== id));
-            // Bỏ chọn ở ô nguyên liệu đang dùng món vừa xoá (bữa đã lưu không đổi
-            // vì macro của chúng đã được chốt lúc lưu)
-            setRows(prev =>
-              prev.map(r =>
-                r.food && "id" in r.food && (r.food as SavedFood).id === id
-                  ? { ...r, food: null }
-                  : r
-              )
-            );
-          }}
-          onAdded={(food) => {
-            setCustomFoods(prev => [food, ...prev]);
-            // Điền luôn món vừa thêm vào ô nguyên liệu đang bỏ trống (nếu có)
-            setRows(prev => {
-              const target =
-                prev.find(r => !r.food && r.query.trim()) ?? prev.find(r => !r.food);
-              if (!target) return prev;
-              return prev.map(r =>
-                r.id === target.id
-                  ? { ...r, food, query: food.name, grams: food.gramsPerUnit ? 1 : r.grams }
-                  : r
-              );
-            });
-            setShowAddFood(false);
-          }}
-        />
       )}
 
       {/* ── Hidden PDF template (off-screen for html2canvas) ── */}

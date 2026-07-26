@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import MealPlanSection from "./MealPlanSection";
+import AddFoodModal, { type SavedFood } from "./AddFoodModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -289,6 +290,21 @@ export default function DietForm({
   const [cpError, setCpError] = useState("");
   const [cpSaving, setCpSaving] = useState(false);
 
+  // ── Thư viện món custom (dùng chung cả app) ──
+  // Nạp ở đây thay vì trong MealPlanSection vì nút mở thư viện nằm trên header,
+  // hiện được cả khi chưa tính toán cho khách nào.
+  const [customFoods, setCustomFoods] = useState<SavedFood[]>([]);
+  const [showAddFood, setShowAddFood] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/foods")
+      .then((r) => (r.ok ? r.json() : { foods: [] }))
+      .then((d) => { if (!cancelled) setCustomFoods(d.foods ?? []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) {
@@ -495,6 +511,16 @@ export default function DietForm({
 
   return (
     <>
+      {/* ── Modal thư viện món ăn ── */}
+      {showAddFood && (
+        <AddFoodModal
+          customFoods={customFoods}
+          onClose={() => setShowAddFood(false)}
+          onAdded={(food) => setCustomFoods((prev) => [food, ...prev])}
+          onDeleted={(id) => setCustomFoods((prev) => prev.filter((f) => f.id !== id))}
+        />
+      )}
+
       {/* ── Change Password Modal ── */}
       {showChangePwd && (
         <div
@@ -681,7 +707,10 @@ export default function DietForm({
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          {/* self-start: giữ nhóm nút co theo nội dung (= chiều dài 2 nút trên cùng)
+              để nút w-full bên dưới khớp đúng chiều dài đó, kể cả trên mobile */}
+          <div className="flex flex-col gap-2 shrink-0 self-start md:self-center">
+            <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={openChangePwd}
@@ -721,6 +750,28 @@ export default function DietForm({
                 <line x1="21" y1="12" x2="9" y2="12"/>
               </svg>
               {loggingOut ? "Đang xuất..." : "Đăng xuất"}
+            </button>
+            </div>
+            {/* Thư viện món — w-full để dài bằng đúng 2 nút phía trên */}
+            <button
+              type="button"
+              onClick={() => setShowAddFood(true)}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+              style={{
+                background: "rgba(58,85,103,0.06)",
+                color: "#3A5567",
+                border: "1px solid rgba(58,85,103,0.2)",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(58,85,103,0.12)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(58,85,103,0.06)")}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                <line x1="10" y1="7" x2="16" y2="7"/>
+                <line x1="13" y1="4" x2="13" y2="10"/>
+              </svg>
+              Thư viện món ăn
             </button>
           </div>
         </header>
@@ -1222,6 +1273,7 @@ export default function DietForm({
             liveFat={macroF}
             liveCarbs={macroC}
             liveDer={liveDer}
+            customFoods={customFoods}
           />
         )}
 

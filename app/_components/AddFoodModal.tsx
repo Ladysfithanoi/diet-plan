@@ -45,15 +45,13 @@ export default function AddFoodModal({
   onAdded,
   onDeleted,
   customFoods,
-  initialQuery = "",
 }: {
   onClose: () => void;
   onAdded: (food: SavedFood) => void;
   onDeleted: (id: string) => void;
   customFoods: SavedFood[];
-  initialQuery?: string;
 }) {
-  const [query, setQuery] = useState(initialQuery);
+  const [query, setQuery] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [results, setResults] = useState<LookupResult[] | null>(null);
@@ -61,6 +59,7 @@ export default function AddFoodModal({
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [prefilled, setPrefilled] = useState(false); // form vừa được điền từ AI
 
   // Quản lý món đã thêm: id đang chờ xác nhận xoá / id đang gọi API xoá
@@ -119,6 +118,7 @@ export default function AddFoodModal({
   async function doSave() {
     setSaving(true);
     setSaveError(null);
+    setSavedMsg(null);
     try {
       const res = await fetch("/api/foods", {
         method: "POST",
@@ -141,7 +141,15 @@ export default function AddFoodModal({
         setSaveError(data?.error ?? "Không lưu được món ăn");
         return;
       }
-      onAdded(data.food as SavedFood);
+      const saved = data.food as SavedFood;
+      onAdded(saved);
+      // Modal là nơi quản lý thư viện nên giữ nguyên để thêm tiếp — dọn form và
+      // kết quả tra cứu cũ, tránh bấm Lưu lần hai rồi bị báo trùng tên.
+      setForm(EMPTY_FORM);
+      setPrefilled(false);
+      setResults(null);
+      setQuery("");
+      setSavedMsg(`Đã thêm "${saved.name}" vào thư viện`);
     } catch {
       setSaveError("Lỗi kết nối, vui lòng thử lại");
     } finally {
@@ -189,9 +197,9 @@ export default function AddFoodModal({
           style={{ borderBottom: "1px solid rgba(20,17,14,0.08)" }}
         >
           <div>
-            <h3 style={{ fontSize: "1.05rem", fontWeight: 800, color: "#14110E" }}>Thêm món ăn vào thư viện</h3>
+            <h3 style={{ fontSize: "1.05rem", fontWeight: 800, color: "#14110E" }}>Thư viện món ăn</h3>
             <p style={{ fontSize: "0.75rem", color: "rgba(20,17,14,0.45)", marginTop: 2 }}>
-              Món mới dùng chung cho cả app, chỉ số tính trên 100g
+              Món thêm ở đây dùng chung cho cả app, chỉ số tính trên 100g
             </p>
           </div>
           <button
@@ -319,6 +327,14 @@ export default function AddFoodModal({
           {saveError && (
             <p style={{ fontSize: "0.82rem", color: "#A33A2A", fontWeight: 600 }}>{saveError}</p>
           )}
+          {savedMsg && (
+            <p
+              className="px-3 py-2 rounded-xl"
+              style={{ fontSize: "0.82rem", color: "#5C6E48", fontWeight: 600, background: "rgba(92,110,72,0.08)" }}
+            >
+              ✓ {savedMsg} — có thể thêm món tiếp hoặc đóng lại.
+            </p>
+          )}
 
           {/* ── Món đã tự thêm: xem lại / xoá ── */}
           {customFoods.length > 0 && (
@@ -399,7 +415,7 @@ export default function AddFoodModal({
             className="flex-1 py-2.5 rounded-xl font-semibold text-sm"
             style={{ background: "rgba(20,17,14,0.06)", color: "#14110E" }}
           >
-            Huỷ
+            Đóng
           </button>
           <button
             type="button"
