@@ -799,3 +799,16 @@ export const FOODS: FoodItem[] = [
   { name: 'Bánh gạo lứt', nameEn: 'Brown rice cake', calories: 387, protein: 8.2, fat: 2.8, carbs: 81.5, fiber: 4.2, tag: 'starch' },
   { name: 'Couscous (chín)', nameEn: 'Couscous, cooked', calories: 112, protein: 3.8, fat: 0.2, carbs: 23.2, fiber: 1.4, tag: 'starch' },
 ];
+
+// Danh sách nhóm thực phẩm + nhãn tiếng Việt (client-safe — không phụ thuộc server).
+export const FOOD_TAGS: FoodTag[] = [
+  'starch', 'protein', 'veggie', 'fruit', 'fat', 'dairy',
+  'meal', 'junk', 'coffee', 'condiment', 'softdrink', 'beverage', 'alcohol',
+];
+
+export const FOOD_TAG_LABELS: Record<FoodTag, string> = {
+  starch: 'Tinh bột', protein: 'Đạm', veggie: 'Rau', fruit: 'Trái cây',
+  fat: 'Chất béo', dairy: 'Sữa', meal: 'Món ăn/combo', junk: 'Đồ ăn vặt',
+  coffee: 'Cà phê', condiment: 'Gia vị', softdrink: 'Nước ngọt',
+  beverage: 'Đồ uống', alcohol: 'Đồ uống có cồn',
+};

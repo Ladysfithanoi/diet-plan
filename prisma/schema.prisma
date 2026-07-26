@@ -24,3 +24,26 @@ model SharedPlan {
   data      Json
   createdAt DateTime @default(now())
 }
+
+// Thư viện thực phẩm dùng chung cho cả app (chỉ số dinh dưỡng / 100g).
+// - source = "builtin": món gốc seed từ lib/foods-data.ts
+// - source = "custom" : món do người dùng tự thêm (thủ công hoặc tra qua Gemini)
+model Food {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  nameEn       String?
+  calories     Float
+  protein      Float
+  fat          Float
+  carbs        Float
+  fiber        Float?
+  unit         String?  // đơn vị đếm khi nhập (vd 'quả'); mặc định gram
+  gramsPerUnit Float?   // khối lượng 1 đơn vị (g) — quy đổi macro khi unit ≠ gram
+  tag          String
+  source       String   @default("custom") // "builtin" | "custom"
+  createdBy    String?  // id user đã thêm (null với builtin)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([source])
+}

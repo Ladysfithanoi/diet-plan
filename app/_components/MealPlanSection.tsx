@@ -5,6 +5,7 @@ import type { NutritionResult } from "./DietForm";
 import { FOODS, type FoodItem } from "@/lib/foods-data";
 import { getCookingTip } from "@/lib/cooking-tips";
 import type { SharePlan, SlimMeal } from "@/lib/share";
+import AddFoodModal, { type SavedFood } from "./AddFoodModal";
 
 // ─── 7 ngày trong tuần ─────────────────────────────────────────────────────────
 
@@ -121,10 +122,10 @@ function computeRowMacros(food: FoodItem, qty: number) {
   };
 }
 
-function searchFoods(query: string): FoodItem[] {
+function searchFoods(query: string, extra: FoodItem[] = []): FoodItem[] {
   if (!query.trim()) return [];
   const q = query.toLowerCase().trim();
-  return FOODS.filter(f =>
+  return [...extra, ...FOODS].filter(f =>
     f.name.toLowerCase().includes(q) ||
     (f.nameEn ?? '').toLowerCase().includes(q)
   )
@@ -475,6 +476,7 @@ function IngredientSearchRow({
   onRemove,
   onFocus,
   onBlur,
+  extraFoods = [],
 }: {
   row: IngredientRow;
   isActive: boolean;
@@ -485,8 +487,9 @@ function IngredientSearchRow({
   onRemove: () => void;
   onFocus: () => void;
   onBlur: () => void;
+  extraFoods?: FoodItem[];
 }) {
-  const results = isActive && row.query ? searchFoods(row.query) : [];
+  const results = isActive && row.query ? searchFoods(row.query, extraFoods) : [];
   const macros = row.food ? computeRowMacros(row.food, row.grams) : null;
   const [gramsInput, setGramsInput] = useState(String(row.grams));
 
@@ -526,6 +529,15 @@ function IngredientSearchRow({
                   <span className="text-sm font-semibold" style={{ color: "#14110E" }}>
                     {food.name}
                   </span>
+                  {/* Món do người dùng tự thêm (có id) — phân biệt với món hệ thống */}
+                  {"id" in food && (
+                    <span
+                      className="text-xs ml-1.5 px-1.5 py-0.5 rounded font-bold"
+                      style={{ background: "rgba(58,85,103,0.1)", color: "#3A5567", fontSize: "0.62rem" }}
+                    >
+                      TỰ THÊM
+                    </span>
+                  )}
                   <span className="text-xs ml-2" style={{ color: "rgba(20,17,14,0.4)" }}>
                     {food.gramsPerUnit
                       ? (() => {
@@ -675,6 +687,20 @@ export default function MealPlanSection({
   const [rows, setRows] = useState<IngredientRow[]>(() => [newRow()]);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
+
+  // ── Thư viện món custom (do người dùng tự thêm, dùng chung cả app) ──
+  const [customFoods, setCustomFoods] = useState<SavedFood[]>([]);
+  const [showAddFood, setShowAddFood] = useState(false);
+  const [addFoodQuery, setAddFoodQuery] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/foods")
+      .then((r) => (r.ok ? r.json() : { foods: [] }))
+      .then((d) => { if (!cancelled) setCustomFoods(d.foods ?? []); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const [pdfLoading, setPdfLoading] = useState(false);
 
@@ -1244,6 +1270,7 @@ export default function MealPlanSection({
                     <IngredientSearchRow
                       key={row.id}
                       row={row}
+                      extraFoods={customFoods}
                       isActive={activeDropdown === row.id}
                       canRemove={rows.length > 1}
                       onQueryChange={(val) => {
@@ -1277,16 +1304,31 @@ export default function MealPlanSection({
                   ))}
                 </div>
 
-                {rows.length < 5 && (
+                <div className="flex items-center gap-4 flex-wrap">
+                  {rows.length < 5 && (
+                    <button
+                      type="button"
+                      onClick={() => setRows(prev => [...prev, newRow()])}
+                      className="text-sm font-semibold"
+                      style={{ color: "#B5651E" }}
+                    >
+                      + Thêm nguyên liệu ({rows.length}/5)
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setRows(prev => [...prev, newRow()])}
+                    onClick={() => {
+                      // Gợi ý sẵn từ khoá đang gõ ở ô tìm chưa chọn được món
+                      const pending = rows.find(r => !r.food && r.query.trim());
+                      setAddFoodQuery(pending?.query.trim() ?? "");
+                      setShowAddFood(true);
+                    }}
                     className="text-sm font-semibold"
-                    style={{ color: "#B5651E" }}
+                    style={{ color: "#3A5567" }}
                   >
-                    + Thêm nguyên liệu ({rows.length}/5)
+                    ＋ Thêm món mới vào thư viện
                   </button>
-                )}
+                </div>
 
                 {/* Meal total preview */}
                 {(() => {
@@ -1653,6 +1695,42 @@ export default function MealPlanSection({
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Modal thêm món mới vào thư viện chung ── */}
+      {showAddFood && (
+        <AddFoodModal
+          initialQuery={addFoodQuery}
+          customFoods={customFoods}
+          onClose={() => setShowAddFood(false)}
+          onDeleted={(id) => {
+            setCustomFoods(prev => prev.filter(f => f.id !== id));
+            // Bỏ chọn ở ô nguyên liệu đang dùng món vừa xoá (bữa đã lưu không đổi
+            // vì macro của chúng đã được chốt lúc lưu)
+            setRows(prev =>
+              prev.map(r =>
+                r.food && "id" in r.food && (r.food as SavedFood).id === id
+                  ? { ...r, food: null }
+                  : r
+              )
+            );
+          }}
+          onAdded={(food) => {
+            setCustomFoods(prev => [food, ...prev]);
+            // Điền luôn món vừa thêm vào ô nguyên liệu đang bỏ trống (nếu có)
+            setRows(prev => {
+              const target =
+                prev.find(r => !r.food && r.query.trim()) ?? prev.find(r => !r.food);
+              if (!target) return prev;
+              return prev.map(r =>
+                r.id === target.id
+                  ? { ...r, food, query: food.name, grams: food.gramsPerUnit ? 1 : r.grams }
+                  : r
+              );
+            });
+            setShowAddFood(false);
+          }}
+        />
       )}
 
       {/* ── Hidden PDF template (off-screen for html2canvas) ── */}
