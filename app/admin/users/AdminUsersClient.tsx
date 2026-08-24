@@ -29,14 +29,24 @@ function roleBadgeStyle(role: string): React.CSSProperties {
   return { background: "rgba(20,17,14,0.06)", color: "rgba(20,17,14,0.55)" };
 }
 
-function trialStatus(user: User): { text: string; expired: boolean } | null {
+type TrialTone = "pending" | "running" | "expired";
+
+const TRIAL_TONE_COLOR: Record<TrialTone, string> = {
+  pending: "rgba(20,17,14,0.45)",
+  running: "rgba(180,83,9,0.9)",
+  expired: "#B5651E",
+};
+
+// Đồng hồ 5 tiếng chỉ chạy từ lần đăng nhập đầu tiên → chưa có mốc hết hạn nghĩa
+// là tài khoản vẫn đang nằm chờ khách đăng nhập, chưa bị trừ giờ.
+function trialStatus(user: User): { text: string; tone: TrialTone } | null {
   if (user.role !== "TRIAL") return null;
-  if (!user.trialExpiresAt) return { text: "Đã hết hạn", expired: true };
+  if (!user.trialExpiresAt) return { text: "Chưa bắt đầu — chờ đăng nhập", tone: "pending" };
   const left = new Date(user.trialExpiresAt).getTime() - Date.now();
-  if (left <= 0) return { text: "Đã hết hạn", expired: true };
+  if (left <= 0) return { text: "Đã hết hạn", tone: "expired" };
   const h = Math.floor(left / 3_600_000);
   const m = Math.floor((left % 3_600_000) / 60_000);
-  return { text: `Còn ${h}h${m.toString().padStart(2, "0")}p`, expired: false };
+  return { text: `Còn ${h}h${m.toString().padStart(2, "0")}p`, tone: "running" };
 }
 
 // ─── Shared UI helpers ────────────────────────────────────────────────────────
@@ -61,6 +71,42 @@ function SuccessBox({ msg }: { msg: string }) {
         <polyline points="20 6 9 17 4 12"/>
       </svg>
       {msg}
+    </div>
+  );
+}
+
+/** Mật khẩu ngẫu nhiên vừa sinh — hiện một lần để Admin sao chép nếu email không tới. */
+function CreatedPasswordBox({ password }: { password: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* trình duyệt chặn clipboard → Admin tự bôi đen để copy */
+    }
+  }
+
+  return (
+    <div className="rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap"
+      style={{ background: "rgba(20,17,14,0.03)", border: "1px solid rgba(20,17,14,0.12)" }}>
+      <span className="text-xs font-semibold" style={{ color: "rgba(20,17,14,0.55)" }}>
+        Mật khẩu vừa tạo
+      </span>
+      <code className="text-sm font-bold tracking-wide px-2.5 py-1 rounded-lg select-all"
+        style={{ background: "#F6F2EA", border: "1px solid rgba(20,17,14,0.1)", color: "#14110E" }}>
+        {password}
+      </code>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+        style={{ color: "#5C6E48", border: "1px solid rgba(92,110,72,0.3)", background: "rgba(92,110,72,0.06)" }}
+      >
+        {copied ? "Đã chép!" : "Sao chép"}
+      </button>
     </div>
   );
 }
@@ -311,10 +357,11 @@ export default function AdminUsersClient({ initialUsers }: Props) {
   // Create form state
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [role, setRole] = useState<"USER" | "TRIAL">("USER");
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
+  // Mật khẩu ngẫu nhiên vừa sinh — hiện lại một lần để Admin sao chép nếu email lỗi.
+  const [createdPassword, setCreatedPassword] = useState("");
   const [creating, setCreating] = useState(false);
 
   // Delete state
@@ -342,9 +389,9 @@ export default function AdminUsersClient({ initialUsers }: Props) {
       const res = await fetch("/api/admin/create-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), password, role }),
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), role }),
       });
-      const data = await res.json() as { ok?: boolean; error?: string; user?: User; emailed?: boolean };
+      const data = await res.json() as { ok?: boolean; error?: string; user?: User; emailed?: boolean; password?: string };
 
       if (!res.ok) {
         setFormError(data.error ?? "Đã có lỗi xảy ra");
@@ -358,12 +405,13 @@ export default function AdminUsersClient({ initialUsers }: Props) {
       }
       const createdRoleLabel = role === "TRIAL" ? "Trải nghiệm" : "User";
       const createdEmail = email;
-      setName(""); setEmail(""); setPassword(""); setRole("USER");
+      setName(""); setEmail(""); setRole("USER");
+      setCreatedPassword(data.password ?? "");
       setFormSuccess(
         `Đã cấp tài khoản ${createdRoleLabel} cho ${data.user?.name ?? createdEmail} thành công!` +
           (data.emailed
-            ? ` Thông tin đăng nhập đã được gửi tới ${createdEmail}.`
-            : " (Chưa gửi được email thông báo — kiểm tra cấu hình email.)")
+            ? ` Mật khẩu tự động đã được gửi tới ${createdEmail}.`
+            : " (Chưa gửi được email thông báo — kiểm tra cấu hình email và gửi mật khẩu bên dưới cho khách.)")
       );
     } catch {
       setFormError("Lỗi kết nối, vui lòng thử lại");
@@ -413,7 +461,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
         setUsers((prev) => prev.map((u) => u.id === data.user!.id ? data.user! : u));
         setEditSuccess(
           action === "reactivate"
-            ? `Đã kích hoạt lại 5 tiếng trải nghiệm cho "${data.user.name}".`
+            ? `Đã mở lại 5 tiếng trải nghiệm cho "${data.user.name}" — bắt đầu tính khi họ đăng nhập lần tới.`
             : `Đã chuyển "${data.user.name}" sang tài khoản User chính thức.`
         );
         setTimeout(() => setEditSuccess(""), 4000);
@@ -535,7 +583,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                   <input
                     type="text"
                     value={name}
-                    onChange={(e) => { setName(e.target.value); setFormError(""); setFormSuccess(""); }}
+                    onChange={(e) => { setName(e.target.value); setFormError(""); setFormSuccess(""); setCreatedPassword(""); }}
                     placeholder="Nguyễn Thị A"
                     required
                     className="dp-input"
@@ -546,24 +594,24 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                   <input
                     type="email"
                     value={email}
-                    onChange={(e) => { setEmail(e.target.value); setFormError(""); setFormSuccess(""); }}
+                    onChange={(e) => { setEmail(e.target.value); setFormError(""); setFormSuccess(""); setCreatedPassword(""); }}
                     placeholder="user@dietplan.com"
                     required
                     className="dp-input"
                   />
                 </div>
               </div>
-              <div>
-                <label className="dp-label">Mật khẩu</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => { setPassword(e.target.value); setFormError(""); setFormSuccess(""); }}
-                  placeholder="Tối thiểu 6 ký tự"
-                  required
-                  minLength={6}
-                  className="dp-input"
-                />
+              <div
+                className="rounded-xl px-4 py-3 text-xs leading-relaxed flex items-start gap-2"
+                style={{ background: "rgba(20,17,14,0.03)", border: "1px solid rgba(20,17,14,0.1)", color: "rgba(20,17,14,0.55)" }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 mt-0.5">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                <span>
+                  Mật khẩu được <span className="font-semibold" style={{ color: "#14110E" }}>tạo ngẫu nhiên</span> và gửi thẳng
+                  vào email của khách — bạn không cần đặt.
+                </span>
               </div>
 
               {/* Cấp tài khoản: Vai trò */}
@@ -572,7 +620,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                 <div className="grid grid-cols-2 gap-3">
                   {([
                     { value: "USER", title: "User", desc: "Tài khoản chính thức, dùng vĩnh viễn" },
-                    { value: "TRIAL", title: "Trải nghiệm", desc: "Dùng thử 5 tiếng rồi tự khoá" },
+                    { value: "TRIAL", title: "Trải nghiệm", desc: "5 tiếng, tính từ lần đăng nhập đầu" },
                   ] as const).map((opt) => {
                     const active = role === opt.value;
                     const accent = opt.value === "TRIAL" ? "163,58,42" : "181,101,30";
@@ -580,7 +628,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                       <button
                         key={opt.value}
                         type="button"
-                        onClick={() => { setRole(opt.value); setFormError(""); setFormSuccess(""); }}
+                        onClick={() => { setRole(opt.value); setFormError(""); setFormSuccess(""); setCreatedPassword(""); }}
                         className="text-left rounded-xl px-4 py-3 transition-all"
                         style={{
                           border: `1.5px solid ${active ? `rgba(${accent},0.6)` : "rgba(20,17,14,0.12)"}`,
@@ -609,6 +657,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
 
               {formError && <ErrorBox msg={formError} />}
               {formSuccess && <SuccessBox msg={formSuccess} />}
+              {createdPassword && <CreatedPasswordBox password={createdPassword} />}
 
               <div className="flex justify-end pt-1">
                 <button
@@ -706,7 +755,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                                   return (
                                     <span
                                       className="text-[11px] font-semibold"
-                                      style={{ color: st.expired ? "#B5651E" : "rgba(180,83,9,0.9)" }}
+                                      style={{ color: TRIAL_TONE_COLOR[st.tone] }}
                                     >
                                       {st.text}
                                     </span>

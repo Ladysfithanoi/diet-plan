@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { ROLE_USER, trialDeadlineFromNow } from "@/lib/trial";
+import { ROLE_USER } from "@/lib/trial";
 
 // Quản lý vai trò / phiên trải nghiệm:
-//  - "reactivate": gia hạn thêm 5 tiếng cho tài khoản Trải nghiệm (sau khi hết hạn
-//    hoặc bất cứ lúc nào Admin muốn).
+//  - "reactivate": mở lại 5 tiếng trải nghiệm — đồng hồ chỉ chạy khi khách đăng
+//    nhập lần kế tiếp, nên tài khoản nằm chờ chứ không bị trừ giờ ngay.
 //  - "convert_to_user": khách đã đóng tiền → chuyển sang vai trò User vĩnh viễn.
 export async function PATCH(
   req: NextRequest,
@@ -23,7 +23,7 @@ export async function PATCH(
 
     let data: { trialExpiresAt?: Date | null; role?: string };
     if (body.action === "reactivate") {
-      data = { trialExpiresAt: trialDeadlineFromNow() };
+      data = { trialExpiresAt: null };
     } else if (body.action === "convert_to_user") {
       data = { role: ROLE_USER, trialExpiresAt: null };
     } else {

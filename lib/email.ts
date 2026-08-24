@@ -75,9 +75,10 @@ export async function sendEmail(opts: {
 
 /**
  * Builds the welcome email sent when an admin creates a new account. Carries
- * the login URL, the login email and the password the admin set, plus a nudge
+ * the login URL, the login email and the auto-generated password, plus a nudge
  * to change it after first sign-in. `roleLabel` is the Vietnamese label shown
- * in the subject/heading (e.g. "User", "Trải nghiệm").
+ * in the subject/heading (e.g. "User", "Trải nghiệm"). `isTrial` adds the note
+ * that the 5-hour trial clock only starts at the first sign-in.
  */
 export function buildWelcomeEmail(opts: {
   fullName: string | null;
@@ -85,6 +86,7 @@ export function buildWelcomeEmail(opts: {
   password: string;
   loginUrl: string;
   roleLabel: string;
+  isTrial?: boolean;
 }): { subject: string; html: string } {
   const name = opts.fullName?.trim() || "bạn";
   const roleLabel = opts.roleLabel;
@@ -102,6 +104,7 @@ export function buildWelcomeEmail(opts: {
       <tr>
         <td style="padding:12px 32px 0;font-size:15px;line-height:1.65;color:#3a3630;">
           <p style="margin:0 0 16px;">Một tài khoản <strong>${escapeHtml(roleLabel)}</strong> trên hệ thống <strong>${BRAND}</strong> vừa được tạo cho bạn. Đăng nhập bằng thông tin bên dưới để bắt đầu sử dụng máy tính dinh dưỡng.</p>
+          ${opts.isTrial ? `<p style="margin:0 0 16px;padding:12px 14px;background:#fdf6ec;border:1px solid #f0e0c4;border-radius:10px;font-size:14px;">⏳ Phiên trải nghiệm kéo dài <strong>5 tiếng</strong>, chỉ bắt đầu tính <strong>từ lúc bạn đăng nhập lần đầu</strong> — nên bạn có thể yên tâm đăng nhập khi đã sẵn sàng.</p>` : ""}
         </td>
       </tr>
       <tr>

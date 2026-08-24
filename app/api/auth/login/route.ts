@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { signSession, COOKIE_NAME } from "@/lib/jwt";
-import { isTrialExpired } from "@/lib/trial";
+import { isTrialExpired, isTrialPending, trialDeadlineFromNow } from "@/lib/trial";
 
 function generateUUID(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -57,9 +57,16 @@ export async function POST(req: NextRequest) {
 
     const sessionId = generateUUID();
 
+    // Tài khoản Trải nghiệm chỉ bắt đầu đếm 5 tiếng từ lần đăng nhập ĐẦU TIÊN —
+    // trước đó tài khoản nằm chờ, không bị trừ thời gian.
+    const startsTrialNow = isTrialPending(user.role, user.trialExpiresAt);
+
     await prisma.user.update({
       where: { id: user.id },
-      data: { currentSessionToken: sessionId },
+      data: {
+        currentSessionToken: sessionId,
+        ...(startsTrialNow ? { trialExpiresAt: trialDeadlineFromNow() } : {}),
+      },
     });
 
     const token = await signSession({
