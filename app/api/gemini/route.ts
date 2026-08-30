@@ -332,15 +332,22 @@ interface MealSolution {
 
 // ─── Core Diet Engine — Clean-Sheet Solver ───────────────────────────────────
 //
-//  Luồng tuyến tính, không có scale-down, không break nửa chừng:
+//  Luồng tuyến tính, không có scale-down, không break nửa chừng. Thứ tự đặt món
+//  đi từ nhóm bị ràng buộc chặt nhất tới nhóm linh hoạt nhất, và mỗi bước trừ đi
+//  phần dưỡng chất mà các bước trước đã mang vào:
 //
-//  Bước 1 : Khoá RAU(150g)/QUẢ(100g) theo template → đo vfPro/vfFat/vfCar
-//  Bước 2 : PROTEIN  grams = perMealPro / food.protein × 100
-//           Fat ceiling 8g/100g khi carbs>100 && fat≤60 (chặn trứng/gà quay/ba chỉ)
-//  Bước 3 : TINH BỘT grams = perMealCarbs / food.carbs × 100
-//           Nếu grams < 50g → bỏ bữa đó, dồn carbs sang bữa chính cuối
+//  Bước 1 : Khoá RAU/QUẢ theo template → đo vfPro/vfCar
+//           Suất rau co theo quỹ carbs (tối thiểu 50g) vì rau cũng mang carbs
+//  Bước 2 : TINH BỘT grams = perMealCarbs / food.carbs × 100
+//           Bữa chính ưu tiên suất ăn được; quỹ carbs quá thấp thì bỏ cơm
+//           còn hơn nhồi suất tượng trưng làm vỡ mục tiêu Calo
+//  Bước 3 : PROTEIN  grams = perMealPro / food.protein × 100
+//           perMealPro đã trừ đạm từ rau/quả và từ cơm — đặt sau tinh bột chính
+//           là vì lý do này; nguồn đạm phải qua trần fat/đạm suy từ quỹ fat
 //  Bước 4 : FAT — bù dầu ăn để lấp fat gap (chia đều các bữa)
-//  Bước 5 : Micro-Tuning Loop ≤ 5% error tại bữa chính cuối (±5g protein/starch, ±2/-1g dầu)
+//  Bước 5 : Micro-Tuning Loop — chỉnh theo tỉ lệ tới khi cả 4 chỉ số về trong
+//           dung sai, rút được từ mọi bữa, nhưng không gọt thủng sàn suất
+//           thịt/cơm của bữa chính
 function runCoreEngine(
   nameLists: Record<string, string[]>,
   macros: { calories: number; protein: number; fat: number; carbs: number },
@@ -475,10 +482,75 @@ function runCoreEngine(
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Bước 2: PROTEIN — grams = perMealPro / food.protein × 100
+  // Bước 2: TINH BỘT — grams = perMealCarbs / food.carbs × 100
+  //   grams < 50g → bỏ bữa đó, dồn carbs sang bữa chính cuối cùng
+  // ─────────────────────────────────────────────────────────────────────────────
+  const netCarbs     = Math.max(0, macros.carbs - vfCar);
+  const perMealCarbs = mealCount > 0 ? netCarbs / mealCount : 0;
+
+  const lastMainIdx = (() => {
+    for (let i = mealCount - 1; i >= 0; i--) {
+      if (templates[i].type === 'main') return i;
+    }
+    return mealCount - 1;
+  })();
+
+  let carbsCarry = 0;
+  // Cơm, bánh mỳ, yến mạch... cũng mang theo đạm. Phải cộng dồn ở đây để bước
+  // PROTEIN bên dưới trừ ra, nếu không suất thịt sẽ bị đặt dư ngay từ đầu rồi
+  // vòng tinh chỉnh phải gọt lại — mà sàn suất thịt của bữa chính chặn không cho gọt.
+  let starchPro = 0;
+
+  // Một mâm cơm đủ đầy có cơm + thịt + rau, nên bữa chính được ưu tiên nâng suất
+  // tinh bột lên mức ăn được. Nhưng khi quỹ carbs quá thấp thì không có cơm là
+  // chuyện bình thường — thà bỏ cơm còn hơn nhồi một suất tượng trưng làm vỡ
+  // mục tiêu Calo. Nên chỉ nâng khi phần carbs cộng thêm vẫn nằm trong dung sai.
+  const MAIN_STARCH_MIN = 40;
+  const carbSlack = Math.max(5, macros.carbs * 0.05);
+
+  // Sàn để vòng tinh chỉnh không gọt sạch cơm khỏi bữa chính — không bao giờ
+  // lớn hơn suất đã đặt, để bữa vốn ít cơm không bị đôn ngược lên.
+  const starchFloor = new Array<number>(mealCount).fill(0);
+
+  for (let i = 0; i < mealCount; i++) {
+    const isLast    = i === lastMainIdx;
+    const isMain    = templates[i].type === 'main';
+    const carbsHere = isLast ? perMealCarbs + carbsCarry : perMealCarbs;
+    if (carbsHere <= 0) continue;
+
+    const starch = pickFood(i, 'starch');
+    if (!starch || starch.carbs <= 0) {
+      if (!isLast) carbsCarry += carbsHere;
+      continue;
+    }
+
+    let g = Math.round((carbsHere / starch.carbs) * 100);
+    if (!isLast && !isMain && g < 50) {
+      carbsCarry += carbsHere;
+      continue;
+    }
+    if (isMain && g < MAIN_STARCH_MIN) {
+      const extraCarbs = ((MAIN_STARCH_MIN - g) * starch.carbs) / 100;
+      if (extraCarbs <= carbSlack) g = MAIN_STARCH_MIN;
+    }
+    if (g > 0) {
+      mealItems[i].push({ food: starch, grams: g });
+      used.add(starch.name);
+      starchPro += (starch.protein * g) / 100;
+      if (isMain) starchFloor[i] = Math.min(MAIN_STARCH_MIN, g);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Bước 3: PROTEIN — grams = perMealPro / food.protein × 100
   // ─────────────────────────────────────────────────────────────────────────────
   const protOpts  = needsLean ? { maxFat: LEAN_CEIL } : {};
-  const perMealPro = Math.max(5, (macros.protein - vfPro) / mealCount);
+  const perMealPro = Math.max(5, (macros.protein - vfPro - starchPro) / mealCount);
+
+  // Sàn suất thịt của bữa chính, chốt ngay lúc đặt: không bao giờ vượt suất đã đặt
+  // (bữa vốn ít thịt thì giữ mức đó) và cũng không cho vòng tinh chỉnh gọt xuống 0.
+  const MAIN_PROTEIN_MIN = 80;
+  const proteinFloor = new Array<number>(mealCount).fill(0);
 
   for (let i = 0; i < mealCount; i++) {
     const noWheyLast = mealCount >= 3 && i === mealCount - 1;
@@ -498,52 +570,12 @@ function runCoreEngine(
         }
       }
     } else {
-      mealItems[i].push({ food: meat, grams: Math.round((perMealPro / meat.protein) * 100) });
+      const g = Math.round((perMealPro / meat.protein) * 100);
+      mealItems[i].push({ food: meat, grams: g });
       used.add(meat.name);
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Bước 3: TINH BỘT — grams = perMealCarbs / food.carbs × 100
-  //   grams < 50g → bỏ bữa đó, dồn carbs sang bữa chính cuối cùng
-  // ─────────────────────────────────────────────────────────────────────────────
-  const netCarbs     = Math.max(0, macros.carbs - vfCar);
-  const perMealCarbs = mealCount > 0 ? netCarbs / mealCount : 0;
-
-  const lastMainIdx = (() => {
-    for (let i = mealCount - 1; i >= 0; i--) {
-      if (templates[i].type === 'main') return i;
-    }
-    return mealCount - 1;
-  })();
-
-  let carbsCarry = 0;
-
-  // Bữa chính = cơm + thịt + rau, nên đã có quỹ carbs thì trưa/tối phải có tinh bột;
-  // chỉ bữa sáng/phụ mới được dồn suất quá nhỏ sang bữa khác.
-  const MAIN_STARCH_MIN = 40;
-
-  for (let i = 0; i < mealCount; i++) {
-    const isLast    = i === lastMainIdx;
-    const isMain    = templates[i].type === 'main';
-    const carbsHere = isLast ? perMealCarbs + carbsCarry : perMealCarbs;
-    if (carbsHere <= 0) continue;
-
-    const starch = pickFood(i, 'starch');
-    if (!starch || starch.carbs <= 0) {
-      if (!isLast) carbsCarry += carbsHere;
-      continue;
-    }
-
-    let g = Math.round((carbsHere / starch.carbs) * 100);
-    if (!isLast && !isMain && g < 50) {
-      carbsCarry += carbsHere;
-      continue;
-    }
-    if (isMain && g < MAIN_STARCH_MIN) g = MAIN_STARCH_MIN;
-    if (g > 0) {
-      mealItems[i].push({ food: starch, grams: g });
-      used.add(starch.name);
+      if (templates[i].type === 'main') {
+        proteinFloor[i] = Math.min(MAIN_PROTEIN_MIN, g);
+      }
     }
   }
 
@@ -615,12 +647,12 @@ function runCoreEngine(
       ? effectiveGrams(food, grams)
       : Math.max(0, Math.round(grams));
 
-  // Sàn khẩu phần cho bữa chính: trưa/tối luôn phải còn thịt và cơm trên đĩa.
-  const MAIN_PROTEIN_MIN = 80;
+  // Sàn khẩu phần cho bữa chính: trưa/tối phải còn thịt và cơm trên đĩa. Sàn chỉ
+  // chặn việc gọt xuống, không bao giờ đôn suất lên.
   const floorGrams = (tag: string, mealIdx: number): number => {
     if (templates[mealIdx]?.type !== 'main') return 0;
-    if (tag === 'protein') return MAIN_PROTEIN_MIN;
-    if (tag === 'starch')  return MAIN_STARCH_MIN;
+    if (tag === 'starch')  return starchFloor[mealIdx];
+    if (tag === 'protein') return proteinFloor[mealIdx];
     return 0;
   };
 
