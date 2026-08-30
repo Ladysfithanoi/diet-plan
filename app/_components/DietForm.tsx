@@ -9,7 +9,8 @@ import AddFoodModal, { type SavedFood } from "./AddFoodModal";
 
 type Gender = "male" | "female";
 type BmrFormula = "mifflin" | "harris" | "pyramid";
-type ActivityLevel = "level1" | "level2" | "level3" | "level4";
+type StepLevel = "step1" | "step2" | "step3" | "step4" | "step5";
+type GymLevel = "gym1" | "gym2" | "gym3" | "gym4" | "gym5";
 type WeightGoal = "lose" | "gain" | "maintain";
 type GoalInputMode = "target_weight" | "kg_to_lose" | "kg_to_gain";
 type LossSpeed = "slow" | "medium" | "fast";
@@ -23,7 +24,8 @@ interface FormState {
   likes: string;
   dislikes: string;
   bmrFormula: BmrFormula;
-  activityLevel: ActivityLevel;
+  stepLevel: StepLevel;
+  gymLevel: GymLevel;
   weightGoal: WeightGoal;
   lossSpeed: LossSpeed;
   goalInputMode: GoalInputMode;
@@ -40,7 +42,8 @@ export interface NutritionResult {
   likes: string;
   dislikes: string;
   bmrFormula: BmrFormula;
-  activityLevel: ActivityLevel;
+  stepLevel: StepLevel;
+  gymLevel: GymLevel;
   weightGoal: WeightGoal;
   bmr: number;
   tdee: number;
@@ -85,15 +88,29 @@ function calcBMR(
   }
 }
 
-const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {
-  level1: 1.2,
-  level2: 1.4,
-  level3: 1.6,
-  level4: 1.9,
+// PAL = chỉ số mức độ vận động (bước chân) + chỉ số mức độ tập luyện (gym)
+const STEP_PAL: Record<StepLevel, number> = {
+  step1: 0.6,
+  step2: 0.7,
+  step3: 0.8,
+  step4: 0.9,
+  step5: 1.0,
 };
 
-function calcTDEE(bmr: number, level: ActivityLevel): number {
-  return bmr * ACTIVITY_MULTIPLIERS[level];
+const GYM_PAL: Record<GymLevel, number> = {
+  gym1: 0.55,
+  gym2: 0.65,
+  gym3: 0.75,
+  gym4: 0.85,
+  gym5: 0.95,
+};
+
+function calcPAL(step: StepLevel, gym: GymLevel): number {
+  return STEP_PAL[step] + GYM_PAL[gym];
+}
+
+function calcTDEE(bmr: number, pal: number): number {
+  return bmr * pal;
 }
 
 function calcDER(
@@ -182,11 +199,20 @@ const LOSS_SPEED: Record<LossSpeed, { rate: number; label: string; percent: stri
   fast: { rate: 0.015, label: "Giảm nhanh", percent: "1.5%" },
 };
 
-const ACTIVITY_LABEL: Record<ActivityLevel, string> = {
-  level1: "Tập tạ ≥3 buổi + <5.000 bước/ngày (×1.2)",
-  level2: "Tập tạ ≥3 buổi + 5.000–6.999 bước/ngày (×1.4)",
-  level3: "Tập tạ ≥3 buổi + 7.000–9.999 bước/ngày (×1.6)",
-  level4: "Tập tạ ≥3 buổi + ≥10.000 bước/ngày (×1.9)",
+const STEP_LABEL: Record<StepLevel, string> = {
+  step1: "Đi bộ dưới 1.999 bước/ngày",
+  step2: "Đi bộ 2.000 – 4.999 bước/ngày",
+  step3: "Đi bộ 5.000 – 6.999 bước/ngày",
+  step4: "Đi bộ 7.000 – 9.999 bước/ngày",
+  step5: "Đi bộ trên 10.000 bước/ngày",
+};
+
+const GYM_LABEL: Record<GymLevel, string> = {
+  gym1: "Không tập Gym",
+  gym2: "Tập Gym 1 – 3 buổi/tuần",
+  gym3: "Tập Gym 3 – 4 buổi/tuần",
+  gym4: "Tập Gym nhiều hơn 5 buổi/tuần",
+  gym5: "Tập Gym 7 buổi/tuần, mỗi buổi 2 tiếng",
 };
 
 const INITIAL_FORM: FormState = {
@@ -198,7 +224,8 @@ const INITIAL_FORM: FormState = {
   likes: "",
   dislikes: "",
   bmrFormula: "mifflin",
-  activityLevel: "level1",
+  stepLevel: "step1",
+  gymLevel: "gym1",
   weightGoal: "lose",
   lossSpeed: "medium",
   goalInputMode: "kg_to_lose",
@@ -219,9 +246,11 @@ function formatCountdown(ms: number): string {
 export default function DietForm({
   userName,
   trialExpiresAt = null,
+  isAdmin = false,
 }: {
   userName: string;
   trialExpiresAt?: string | null;
+  isAdmin?: boolean;
 }) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
@@ -406,7 +435,7 @@ export default function DietForm({
     const w = parseFloat(form.weight);
     const a = parseInt(form.age, 10);
     const bmr = calcBMR(form.bmrFormula, form.gender, w, h, a);
-    const tdee = calcTDEE(bmr, form.activityLevel);
+    const tdee = calcTDEE(bmr, calcPAL(form.stepLevel, form.gymLevel));
     const lossRate = LOSS_SPEED[form.lossSpeed].rate;
     const { der, weeklyLoss, weeklyGain } = calcDER(tdee, form.weightGoal, w, lossRate);
     const { protein, fat, carbs } = calcMacros(h, der);
@@ -426,7 +455,8 @@ export default function DietForm({
       likes: form.likes.trim(),
       dislikes: form.dislikes.trim(),
       bmrFormula: form.bmrFormula,
-      activityLevel: form.activityLevel,
+      stepLevel: form.stepLevel,
+      gymLevel: form.gymLevel,
       weightGoal: form.weightGoal,
       bmr: Math.round(bmr),
       tdee: Math.round(tdee),
@@ -773,6 +803,28 @@ export default function DietForm({
               </svg>
               Thư viện món ăn
             </button>
+            {/* Quay về trang tạo tài khoản — chỉ hiện với Admin */}
+            {isAdmin && (
+              <a
+                href="/admin/users"
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+                style={{
+                  background: "rgba(20,17,14,0.05)",
+                  color: "rgba(20,17,14,0.7)",
+                  border: "1px solid rgba(20,17,14,0.1)",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(20,17,14,0.1)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(20,17,14,0.05)")}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                  <circle cx="9" cy="7" r="4"/>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                Quản lý tài khoản
+              </a>
+            )}
           </div>
         </header>
 
@@ -855,7 +907,8 @@ export default function DietForm({
             <SectionTitle>Công thức & mục tiêu</SectionTitle>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
-              <div>
+              {/* BMR chiếm trọn 1 dòng */}
+              <div className="sm:col-span-2">
                 <label htmlFor="bmrFormula" className="dp-label">Công thức tính BMR</label>
                 <select id="bmrFormula" name="bmrFormula" value={form.bmrFormula}
                   onChange={handleChange} className="dp-input">
@@ -865,12 +918,23 @@ export default function DietForm({
                 </select>
               </div>
 
+              {/* Dòng dưới: 2 cột trên desktop, mỗi thứ 1 dòng trên mobile */}
               <div>
-                <label htmlFor="activityLevel" className="dp-label">Mức độ vận động / Bước chân</label>
-                <select id="activityLevel" name="activityLevel" value={form.activityLevel}
+                <label htmlFor="stepLevel" className="dp-label">Mức độ vận động</label>
+                <select id="stepLevel" name="stepLevel" value={form.stepLevel}
                   onChange={handleChange} className="dp-input">
-                  {(Object.keys(ACTIVITY_LABEL) as ActivityLevel[]).map((l) => (
-                    <option key={l} value={l}>{ACTIVITY_LABEL[l]}</option>
+                  {(Object.keys(STEP_LABEL) as StepLevel[]).map((l) => (
+                    <option key={l} value={l}>{STEP_LABEL[l]}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="gymLevel" className="dp-label">Mức độ tập luyện</label>
+                <select id="gymLevel" name="gymLevel" value={form.gymLevel}
+                  onChange={handleChange} className="dp-input">
+                  {(Object.keys(GYM_LABEL) as GymLevel[]).map((l) => (
+                    <option key={l} value={l}>{GYM_LABEL[l]}</option>
                   ))}
                 </select>
               </div>

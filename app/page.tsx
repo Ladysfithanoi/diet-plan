@@ -31,6 +31,7 @@ export default async function Home() {
   return (
     <DietForm
       userName={user.name}
+      isAdmin={user.role === "ADMIN"}
       trialExpiresAt={
         user.role === ROLE_TRIAL && user.trialExpiresAt
           ? user.trialExpiresAt.toISOString()

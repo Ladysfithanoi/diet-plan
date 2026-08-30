@@ -514,7 +514,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
         <div className="max-w-3xl mx-auto space-y-8">
 
           {/* Header */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div
               className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
               style={{ background: "#14110E" }}
@@ -526,7 +526,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                 <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
               </svg>
             </div>
-            <div>
+            <div className="min-w-0">
               <h1 className="text-xl font-bold leading-tight" style={{ color: "#14110E" }}>
                 Quản lý tài khoản
               </h1>
@@ -534,10 +534,10 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                 Cấp và thu hồi quyền truy cập hệ thống
               </p>
             </div>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-2">
               <a
                 href="/"
-                className="text-sm font-medium px-4 py-2 rounded-xl transition-colors"
+                className="flex-1 sm:flex-none text-center whitespace-nowrap text-sm font-medium px-4 py-2 rounded-xl transition-colors"
                 style={{ color: "rgba(20,17,14,0.55)", border: "1px solid rgba(20,17,14,0.12)", background: "#F6F2EA" }}
               >
                 ← Xem giao diện thực đơn
@@ -546,7 +546,7 @@ export default function AdminUsersClient({ initialUsers }: Props) {
                 type="button"
                 onClick={handleLogout}
                 disabled={loggingOut}
-                className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+                className="flex-1 sm:flex-none justify-center flex items-center gap-1.5 whitespace-nowrap text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
                 style={{
                   color: "#B5651E",
                   border: "1px solid rgba(181,101,30,0.25)",
