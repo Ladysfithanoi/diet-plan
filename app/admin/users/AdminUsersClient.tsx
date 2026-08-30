@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 interface User {
   id: string;
@@ -535,13 +536,13 @@ export default function AdminUsersClient({ initialUsers }: Props) {
               </p>
             </div>
             <div className="w-full sm:w-auto sm:ml-auto flex items-center gap-2">
-              <a
+              <Link
                 href="/"
                 className="flex-1 sm:flex-none text-center whitespace-nowrap text-sm font-medium px-4 py-2 rounded-xl transition-colors"
                 style={{ color: "rgba(20,17,14,0.55)", border: "1px solid rgba(20,17,14,0.12)", background: "#F6F2EA" }}
               >
                 ← Xem giao diện thực đơn
-              </a>
+              </Link>
               <button
                 type="button"
                 onClick={handleLogout}

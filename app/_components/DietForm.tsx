@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import MealPlanSection from "./MealPlanSection";
 import AddFoodModal, { type SavedFood } from "./AddFoodModal";
 
@@ -200,17 +201,17 @@ const LOSS_SPEED: Record<LossSpeed, { rate: number; label: string; percent: stri
 };
 
 const STEP_LABEL: Record<StepLevel, string> = {
-  step1: "Đi bộ dưới 1.999 bước/ngày",
-  step2: "Đi bộ 2.000 – 4.999 bước/ngày",
-  step3: "Đi bộ 5.000 – 6.999 bước/ngày",
-  step4: "Đi bộ 7.000 – 9.999 bước/ngày",
-  step5: "Đi bộ trên 10.000 bước/ngày",
+  step1: "Đi bộ dưới 1999 bước/ngày",
+  step2: "Đi bộ từ 2000 - 4999 bước/ngày",
+  step3: "Đi bộ từ 5000 - 6999 bước/ngày",
+  step4: "Đi bộ từ 7000 - 9999 bước/ngày",
+  step5: "Đi bộ trên 10000 bước/ngày",
 };
 
 const GYM_LABEL: Record<GymLevel, string> = {
   gym1: "Không tập Gym",
-  gym2: "Tập Gym 1 – 3 buổi/tuần",
-  gym3: "Tập Gym 3 – 4 buổi/tuần",
+  gym2: "Tập Gym từ 1-3 buổi/tuần",
+  gym3: "Tập Gym từ 3-4 buổi/tuần",
   gym4: "Tập Gym nhiều hơn 5 buổi/tuần",
   gym5: "Tập Gym 7 buổi/tuần, mỗi buổi 2 tiếng",
 };
@@ -260,9 +261,10 @@ export default function DietForm({
 
   // ── Đồng hồ đếm ngược cho phiên Trải nghiệm ──
   const trialDeadline = trialExpiresAt ? new Date(trialExpiresAt).getTime() : null;
-  const [remainingMs, setRemainingMs] = useState<number | null>(
-    trialDeadline !== null ? Math.max(0, trialDeadline - Date.now()) : null
-  );
+  // Khởi tạo null thay vì đọc Date.now() lúc render (render phải thuần khiết, và
+  // giờ server ≠ giờ client sẽ gây lệch hydrate). Effect bên dưới tick() ngay khi
+  // mount nên đồng hồ hiện ra liền sau đó.
+  const [remainingMs, setRemainingMs] = useState<number | null>(null);
   const [trialOver, setTrialOver] = useState(false);
 
   useEffect(() => {
@@ -300,16 +302,6 @@ export default function DietForm({
   const [macroC, setMacroC] = useState(0);
   const [autoBalance, setAutoBalance] = useState(true);
   const [macroAlert, setMacroAlert] = useState("");
-
-  // Sync macro inputs whenever a new result is calculated
-  useEffect(() => {
-    if (result) {
-      setMacroP(result.protein);
-      setMacroF(result.fat);
-      setMacroC(result.carbs);
-      setMacroAlert("");
-    }
-  }, [result]);
 
   // Change-password modal state
   const [showChangePwd, setShowChangePwd] = useState(false);
@@ -475,6 +467,12 @@ export default function DietForm({
       daysToGainGoal: gainRoadmap?.daysToGoal ?? null,
       monthsToGainGoal: gainRoadmap?.monthsToGoal ?? null,
     });
+    // Nạp thẳng ô nhập macro tại đây thay vì dùng effect theo dõi `result`
+    // (effect chỉ gây thêm một vòng render thừa).
+    setMacroP(Math.round(protein));
+    setMacroF(fat);
+    setMacroC(Math.round(carbs));
+    setMacroAlert("");
     setTimeout(() => {
       document.getElementById("result-card")?.scrollIntoView({ behavior: "smooth" });
     }, 50);
@@ -805,7 +803,7 @@ export default function DietForm({
             </button>
             {/* Quay về trang tạo tài khoản — chỉ hiện với Admin */}
             {isAdmin && (
-              <a
+              <Link
                 href="/admin/users"
                 className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
                 style={{
@@ -823,7 +821,7 @@ export default function DietForm({
                   <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                 </svg>
                 Quản lý tài khoản
-              </a>
+              </Link>
             )}
           </div>
         </header>
@@ -918,8 +916,8 @@ export default function DietForm({
                 </select>
               </div>
 
-              {/* Dòng dưới: 2 cột trên desktop, mỗi thứ 1 dòng trên mobile */}
-              <div>
+              {/* Mỗi ô 1 dòng để nhãn dài không bị cắt cụt trong select */}
+              <div className="sm:col-span-2">
                 <label htmlFor="stepLevel" className="dp-label">Mức độ vận động</label>
                 <select id="stepLevel" name="stepLevel" value={form.stepLevel}
                   onChange={handleChange} className="dp-input">
@@ -929,7 +927,7 @@ export default function DietForm({
                 </select>
               </div>
 
-              <div>
+              <div className="sm:col-span-2">
                 <label htmlFor="gymLevel" className="dp-label">Mức độ tập luyện</label>
                 <select id="gymLevel" name="gymLevel" value={form.gymLevel}
                   onChange={handleChange} className="dp-input">
