@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { COOKIE_NAME, verifySession } from "@/lib/jwt";
 import prisma from "@/lib/prisma";
 import { cookies } from "next/headers";
 
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;

@@ -24,6 +24,66 @@ function shuffleFoods<T>(arr: T[]): T[] {
   return copy;
 }
 
+// Mật độ dinh dưỡng tối thiểu để một món đủ tư cách làm "trụ" của nhóm.
+// Không có ngưỡng này, solver sẽ chọn những món như tuỷ xương (1g đạm/100g) rồi
+// tính ra khẩu phần 2.770g mới đủ đạm — kéo Calo ngày vọt lên gấp mấy lần mục tiêu.
+const MIN_PRO_DENSITY = 15;  // g đạm/100g
+const MIN_CARB_DENSITY = 15; // g bột đường/100g
+const MAX_VEGGIE_KCAL = 40;  // kcal/100g
+const MAX_VEGGIE_CARB = 10;  // g bột đường/100g
+
+// Tag trong DB không phải lúc nào cũng phản ánh đúng vai trò dinh dưỡng: "Da gà"
+// gắn tag protein nhưng 440kcal với P11/F44 — thực chất là nguồn fat; "Mộc nhĩ"
+// gắn tag veggie nhưng 65g carbs/100g — thực chất là tinh bột. Solver vì thế xét
+// theo macro thật của món, không tin tag một cách mù quáng.
+function isUsableProtein(f: FoodItem): boolean {
+  return f.tag === 'protein'
+    && f.protein >= MIN_PRO_DENSITY
+    && f.protein * 4 > f.fat * 9; // Calo phải chủ yếu đến từ đạm
+}
+
+// Rau cho suất cố định 150g: phải thực sự là rau, nếu không 150g "rau" khô có thể
+// nạp thêm cả trăm kcal tinh bột mà vòng tinh chỉnh không có cách nào gỡ ra.
+function isUsableVeggie(f: FoodItem): boolean {
+  return f.tag === 'veggie'
+    && f.calories <= MAX_VEGGIE_KCAL
+    && f.carbs <= MAX_VEGGIE_CARB;
+}
+
+// Bột đạm, sữa bột, men bia, ruốc... hợp lệ về macro nhưng không ai dọn ra làm
+// món mặn bữa trưa/tối. Bữa chính phải là combo cơm + thịt + rau, nên các món này
+// chỉ được phép xuất hiện ở bữa sáng hoặc bữa phụ.
+const NOT_MAIN_DISH = /whey|protein|bột |sữa |men bia|ruốc/i;
+
+function isMainDishProtein(f: FoodItem): boolean {
+  return !NOT_MAIN_DISH.test(f.name);
+}
+
+function isUsableStarch(f: FoodItem): boolean {
+  return f.tag === 'starch' && f.carbs >= MIN_CARB_DENSITY;
+}
+
+// Trần "fat đi kèm đạm". Muốn ăn đủ P gram đạm mà không vỡ quỹ F gram fat thì
+// nguồn đạm phải có tỉ lệ fat/đạm ≤ F/P. Chừa lại 25% quỹ fat cho dầu ăn + rau.
+// Thiếu ràng buộc này, solver chọn đuôi lợn hay da gà rồi nạp 400g mới đủ đạm —
+// fat vọt gấp mấy lần mục tiêu, mà vòng tinh chỉnh chỉ gỡ được dầu ăn nên bó tay.
+function fatPerProteinCeil(macros: { protein: number; fat: number }): number {
+  if (macros.protein <= 0 || macros.fat <= 0) return Infinity;
+  return (macros.fat * 0.75) / macros.protein;
+}
+
+function fatRatio(f: FoodItem): number {
+  return f.protein > 0 ? f.fat / f.protein : Infinity;
+}
+
+// Lọc theo trần fat/đạm; nếu DB không còn món nào đạt thì lấy các món nạc nhất
+// còn lại để bữa ăn không bị khuyết đạm.
+function leanestProteins(pool: FoodItem[], ceil: number): FoodItem[] {
+  const fit = pool.filter(f => fatRatio(f) <= ceil);
+  if (fit.length > 0) return fit;
+  return [...pool].sort((a, b) => fatRatio(a) - fatRatio(b)).slice(0, 12);
+}
+
 function findExactFood(name: string): FoodItem | null {
   const q = name.trim().toLowerCase();
   return FOODS.find(f => f.name.trim().toLowerCase() === q) ?? null;
@@ -40,12 +100,6 @@ function effectiveGrams(food: FoodItem, grams: number): number {
     return units * food.gramsPerUnit;
   }
   return grams;
-}
-
-// Bước tinh chỉnh: với thực phẩm đếm theo đơn vị (trứng) phải nhảy nguyên 1 đơn vị,
-// vì nhích vài gram sẽ làm tròn về cùng số quả → hiển thị không đổi → loop kẹt.
-function tuneStep(food: FoodItem, baseStep: number): number {
-  return food.gramsPerUnit && food.unit ? food.gramsPerUnit : baseStep;
 }
 
 // ─── Meal Time Labels ─────────────────────────────────────────────────────────
@@ -108,9 +162,9 @@ function buildNameOnlySystemInstruction(
   macros: { calories: number; protein: number; fat: number; carbs: number },
   preferences?: { likes?: string; dislikes?: string }
 ): string {
-  const vegNames     = shuffleFoods(FOODS.filter(f => f.tag === 'veggie')).map(f => f.name);
+  const vegNames     = shuffleFoods(FOODS.filter(isUsableVeggie)).map(f => f.name);
   const fruitNames   = shuffleFoods(FOODS.filter(f => f.tag === 'fruit')).map(f => f.name);
-  const starchNames  = shuffleFoods(FOODS.filter(f => f.tag === 'starch')).map(f => f.name);
+  const starchNames  = shuffleFoods(FOODS.filter(isUsableStarch)).map(f => f.name);
 
   const labels    = MEAL_TIMES[mealCount] ?? Array.from({ length: mealCount }, (_, i) => `Bữa ${i + 1}`);
   const templates = getMealTemplates(mealCount);
@@ -126,13 +180,14 @@ function buildNameOnlySystemInstruction(
   const isHighCarbLowFat    = macros.carbs > 100 && macros.fat <= 60;
 
   // Build restricted protein list and warning block depending on scenario
-  const leanProteinNames5 = FOODS.filter(f => f.tag === 'protein' && f.fat <= 5).map(f => f.name);
-  const leanProteinNames8 = FOODS.filter(f => f.tag === 'protein' && f.fat <= 8).map(f => f.name);
+  const leanProteinNames5 = FOODS.filter(f => isUsableProtein(f) && f.fat <= 5).map(f => f.name);
+  const leanProteinNames8 = FOODS.filter(f => isUsableProtein(f) && f.fat <= 8).map(f => f.name);
+  const ceil = fatPerProteinCeil(macros);
   const proteinNames = isLowCalHighProtein
     ? leanProteinNames5
     : isHighCarbLowFat
       ? leanProteinNames8
-      : shuffleFoods(FOODS.filter(f => f.tag === 'protein')).map(f => f.name);
+      : shuffleFoods(leanestProteins(FOODS.filter(isUsableProtein), ceil)).map(f => f.name);
 
   const leanProteinBlock = isLowCalHighProtein
     ? `\n\n⚠️ CHẾ ĐỘ THẤP CALO / CAO ĐẠM — LUẬT ĐẶC BIỆT BẮT BUỘC (${macros.calories} kcal, ${macros.protein}g đạm):\nTUYỆT ĐỐI CẤM chọn thịt lợn, trứng gà, vịt quay, gà quay, hay bất kỳ nguồn đạm có Fat > 5g/100g.\nCHỈ ĐƯỢC PHÉP chọn PROTEIN từ danh sách siêu sạch sau:\n${leanProteinNames5.join('\n')}`
@@ -150,7 +205,11 @@ function buildNameOnlySystemInstruction(
     if (tmpl.veggieGrams === 0) banned.push('RAU');
     if (tmpl.fruitGrams  === 0) banned.push('TRÁI CÂY');
     const bannedStr = banned.length > 0 ? ` | KHÔNG chọn: ${banned.join(', ')}` : '';
-    return `  • ${label}: ${slots.join(' + ')}${bannedStr}`;
+    // Trưa/tối là mâm cơm Việt — đạm phải là món mặn thật, không phải bột hay sữa.
+    const mainNote = tmpl.type === 'main'
+      ? ' | BỮA CHÍNH: PROTEIN phải là món mặn thật (thịt, cá, tôm, trứng...), CẤM bột đạm/whey/sữa bột/men bia/ruốc'
+      : '';
+    return `  • ${label}: ${slots.join(' + ')}${bannedStr}${mainNote}`;
   }).join('\n');
 
   return `Mày là chuyên gia dinh dưỡng lên thực đơn giảm cân Việt Nam. Nhiệm vụ DUY NHẤT: trả về TÊN thực phẩm — Backend tự tính 100% số gram và macro, AI KHÔNG được đặt bất kỳ con số nào.
@@ -165,7 +224,9 @@ LUẬT TUYỆT ĐỐI — VI PHẠM = OUTPUT BỊ HỦY:
 2. Cấu trúc BẮT BUỘC theo từng bữa (không được sai slot):
 ${mealSlotLines}
 3. Không lặp cùng tên giữa các bữa.
-4. Bữa Sáng ưu tiên TINH BỘT: Cơm lứt, Yến mạch, Bánh mỳ nguyên cám.${prefBlock}${leanProteinBlock}
+4. Bữa Sáng ưu tiên TINH BỘT: Cơm lứt, Yến mạch, Bánh mỳ nguyên cám.
+5. Bữa Trưa và Tối là mâm cơm Việt: CƠM + THỊT/CÁ + RAU. Không bao giờ đặt sữa,
+   bột đạm hay thực phẩm bổ sung vào hai bữa này.${prefBlock}${leanProteinBlock}
 
 ════════════════ MENU — CHỈ ĐƯỢC CHỌN TỪ ĐÂY ════════════════
 
@@ -199,13 +260,16 @@ function buildFallbackNameLists(
   const isLowCalHighProtein = macros.calories < 1300 && macros.protein > 120;
   const isHighCarbLowFat    = macros.carbs > 100 && macros.fat <= 60;
   const proteinPool = shuffleFoods(
-    FOODS.filter(f =>
-      f.tag === 'protein' &&
-      (isLowCalHighProtein ? f.fat <= 5 : isHighCarbLowFat ? f.fat <= 8 : true)
+    leanestProteins(
+      FOODS.filter(f =>
+        isUsableProtein(f) &&
+        (isLowCalHighProtein ? f.fat <= 5 : isHighCarbLowFat ? f.fat <= 8 : true)
+      ),
+      fatPerProteinCeil(macros)
     )
   );
-  const starchPool = shuffleFoods(FOODS.filter(f => f.tag === 'starch'));
-  const veggiePool = shuffleFoods(FOODS.filter(f => f.tag === 'veggie'));
+  const starchPool = shuffleFoods(FOODS.filter(isUsableStarch));
+  const veggiePool = shuffleFoods(FOODS.filter(isUsableVeggie));
   const fruitPool  = shuffleFoods(FOODS.filter(f => f.tag === 'fruit'));
 
   const take = (pool: FoodItem[], n: number): string[] => {
@@ -287,6 +351,7 @@ function runCoreEngine(
   const isWhey    = (f: FoodItem) => f.name.toLowerCase().includes('whey');
   const needsLean = macros.carbs > 100 && macros.fat <= 60;
   const LEAN_CEIL = 8; // g fat/100g
+  const PRO_FAT_CEIL = fatPerProteinCeil(macros); // g fat / g đạm
 
   // ── pickFood: AI namelist trước, DB lean fallback cho protein ────────────────
   function pickFood(
@@ -295,35 +360,55 @@ function runCoreEngine(
     opts: { noWhey?: boolean; maxFat?: number } = {}
   ): FoodItem | null {
     const names  = nameLists[`meal_${mealIdx + 1}`] ?? [];
+    // Trưa/tối là bữa chính → chỉ nhận đạm dạng món ăn thật (thịt, cá, trứng...)
+    const mainDishOnly = tag === 'protein' && templates[mealIdx]?.type === 'main';
+    // Món AI gợi ý vẫn phải qua ngưỡng mật độ + trần fat/đạm, nếu không khẩu phần
+    // sẽ phi thực tế hoặc fat vượt quỹ.
+    const dense = (f: FoodItem) =>
+      tag === 'protein'
+        ? isUsableProtein(f) && fatRatio(f) <= PRO_FAT_CEIL && (!mainDishOnly || isMainDishProtein(f))
+        : tag === 'starch' ? isUsableStarch(f) : true;
+
     const fromAI = names
       .map(n => findExactFood(n))
       .find((f): f is FoodItem =>
         f !== null &&
         f.tag === tag &&
+        dense(f) &&
         !used.has(f.name) &&
         (!opts.noWhey  || !isWhey(f)) &&
         (opts.maxFat === undefined || f.fat <= opts.maxFat)
       ) ?? null;
     if (fromAI) return fromAI;
-    if (tag === 'protein' && opts.maxFat !== undefined) {
-      const cap = opts.maxFat;
-      return FOODS.find(f =>
-        f.tag === 'protein' &&
+
+    // AI không đưa món hợp lệ cho nhóm này → lấy từ DB để bữa ăn không bị khuyết.
+    if (tag === 'protein' || tag === 'starch') {
+      const base = FOODS.filter(f =>
+        f.tag === tag &&
         !used.has(f.name) &&
         (!opts.noWhey || !isWhey(f)) &&
-        f.fat <= cap &&
-        f.protein > 15
-      ) ?? null;
+        (opts.maxFat === undefined || f.fat <= opts.maxFat)
+      );
+      const pool = tag === 'protein'
+        ? shuffleFoods(leanestProteins(
+            base.filter(f => isUsableProtein(f) && (!mainDishOnly || isMainDishProtein(f))),
+            PRO_FAT_CEIL
+          ))
+        : shuffleFoods(base.filter(isUsableStarch));
+      return pool[0] ?? null;
     }
     return null;
   }
 
   function pickVeggies(mealIdx: number): FoodItem[] {
     const names = nameLists[`meal_${mealIdx + 1}`] ?? [];
-    return names
+    const fromAI = names
       .map(n => findExactFood(n))
-      .filter((f): f is FoodItem => f !== null && f.tag === 'veggie' && !used.has(f.name))
+      .filter((f): f is FoodItem => f !== null && isUsableVeggie(f) && !used.has(f.name))
       .slice(0, 2);
+    if (fromAI.length > 0) return fromAI;
+    // AI chỉ gợi ý "rau" nhiều tinh bột → lấy rau thật từ DB cho suất 150g.
+    return shuffleFoods(FOODS.filter(f => isUsableVeggie(f) && !used.has(f.name))).slice(0, 1);
   }
 
   function dayMacro() {
@@ -346,20 +431,35 @@ function runCoreEngine(
   // ─────────────────────────────────────────────────────────────────────────────
   // Bước 1: Khoá RAU & QUẢ — đo tổng macro VF
   // ─────────────────────────────────────────────────────────────────────────────
-  let vfPro = 0, vfFat = 0, vfCar = 0;
+  let vfPro = 0, vfCar = 0;
+
+  // Rau cũng mang carbs. Với mục tiêu Calo thấp, quỹ carbs không đủ chỗ cho 150g
+  // rau mỗi bữa chính — và phần dư đó vòng tinh chỉnh không gỡ được (nó chỉ chỉnh
+  // được nhóm tinh bột). Nên phải co suất rau cho vừa quỹ, giữ tối thiểu 50g/bữa.
+  const VEGGIE_MIN_GRAMS = 50;
+  const vegCarbBudget = Math.max(0, macros.carbs * 0.25);
+  let vegCarbUsed = 0;
 
   for (let i = 0; i < mealCount; i++) {
     const tmpl = templates[i];
 
     if (tmpl.veggieGrams > 0) {
-      const vegs  = pickVeggies(i);
-      const gEach = vegs.length > 0 ? Math.round(tmpl.veggieGrams / vegs.length) : 0;
-      for (const v of vegs) {
-        mealItems[i].push({ food: v, grams: gEach });
-        used.add(v.name);
-        vfPro += v.protein * gEach / 100;
-        vfFat += v.fat     * gEach / 100;
-        vfCar += v.carbs   * gEach / 100;
+      const vegs = pickVeggies(i);
+      if (vegs.length > 0) {
+        const density = vegs.reduce((s, v) => s + v.carbs, 0) / vegs.length;
+        let total = tmpl.veggieGrams;
+        if (density > 0) {
+          const room = Math.max(0, vegCarbBudget - vegCarbUsed);
+          total = Math.min(total, Math.max(VEGGIE_MIN_GRAMS, Math.round((room / density) * 100)));
+        }
+        const gEach = Math.round(total / vegs.length);
+        for (const v of vegs) {
+          mealItems[i].push({ food: v, grams: gEach });
+          used.add(v.name);
+          vfPro += v.protein * gEach / 100;
+          vfCar += v.carbs   * gEach / 100;
+          vegCarbUsed += v.carbs * gEach / 100;
+        }
       }
     }
 
@@ -369,7 +469,6 @@ function runCoreEngine(
         mealItems[i].push({ food: fruit, grams: tmpl.fruitGrams });
         used.add(fruit.name);
         vfPro += fruit.protein * tmpl.fruitGrams / 100;
-        vfFat += fruit.fat     * tmpl.fruitGrams / 100;
         vfCar += fruit.carbs   * tmpl.fruitGrams / 100;
       }
     }
@@ -420,8 +519,13 @@ function runCoreEngine(
 
   let carbsCarry = 0;
 
+  // Bữa chính = cơm + thịt + rau, nên đã có quỹ carbs thì trưa/tối phải có tinh bột;
+  // chỉ bữa sáng/phụ mới được dồn suất quá nhỏ sang bữa khác.
+  const MAIN_STARCH_MIN = 40;
+
   for (let i = 0; i < mealCount; i++) {
     const isLast    = i === lastMainIdx;
+    const isMain    = templates[i].type === 'main';
     const carbsHere = isLast ? perMealCarbs + carbsCarry : perMealCarbs;
     if (carbsHere <= 0) continue;
 
@@ -431,11 +535,12 @@ function runCoreEngine(
       continue;
     }
 
-    const g = Math.round((carbsHere / starch.carbs) * 100);
-    if (!isLast && g < 50) {
+    let g = Math.round((carbsHere / starch.carbs) * 100);
+    if (!isLast && !isMain && g < 50) {
       carbsCarry += carbsHere;
       continue;
     }
+    if (isMain && g < MAIN_STARCH_MIN) g = MAIN_STARCH_MIN;
     if (g > 0) {
       mealItems[i].push({ food: starch, grams: g });
       used.add(starch.name);
@@ -468,21 +573,25 @@ function runCoreEngine(
     const names = nameLists[`meal_${lastMainIdx + 1}`] ?? [];
     return names.map(n => findExactFood(n))
       .find((f): f is FoodItem =>
-        f !== null && f.tag === 'protein' && !isWhey(f) &&
+        f !== null && isUsableProtein(f) && !isWhey(f) &&
+        fatRatio(f) <= PRO_FAT_CEIL &&
         (!needsLean || f.fat <= LEAN_CEIL)
       )
-      ?? FOODS.find(f =>
-        f.tag === 'protein' && !isWhey(f) && f.protein > 20 &&
-        (!needsLean || f.fat <= LEAN_CEIL)
-      )
+      ?? leanestProteins(
+        FOODS.filter(f =>
+          isUsableProtein(f) && !isWhey(f) && f.protein > 20 &&
+          (!needsLean || f.fat <= LEAN_CEIL)
+        ),
+        PRO_FAT_CEIL
+      )[0]
       ?? null;
   })();
 
   const starchFB = (() => {
     const names = nameLists[`meal_${lastMainIdx + 1}`] ?? [];
     return names.map(n => findExactFood(n))
-      .find((f): f is FoodItem => f !== null && f.tag === 'starch')
-      ?? FOODS.find(f => f.tag === 'starch' && f.carbs > 20)
+      .find((f): f is FoodItem => f !== null && isUsableStarch(f))
+      ?? FOODS.find(f => isUsableStarch(f) && f.carbs > 20)
       ?? null;
   })();
 
@@ -499,32 +608,104 @@ function runCoreEngine(
     return ni;
   }
 
-  for (let iter = 0; iter < 100; iter++) {
-    const { cal, pro, fat, car } = dayMacro();
-    const calErr = macros.calories > 0 ? Math.abs((cal - macros.calories) / macros.calories) : 0;
-    const proErr = macros.protein  > 0 ? Math.abs((pro - macros.protein)  / macros.protein)  : 0;
-    const fatErr = macros.fat      > 0 ? Math.abs((fat - macros.fat)      / macros.fat)      : 0;
-    const carErr = macros.carbs    > 0 ? Math.abs((car - macros.carbs)    / macros.carbs)    : 0;
-    if (calErr <= 0.05 && proErr <= 0.05 && fatErr <= 0.05 && carErr <= 0.05) break;
+  // Làm tròn về bội số đơn vị với món đếm theo quả/cái, để con số engine tính
+  // trùng khít con số hiển thị (xem effectiveGrams).
+  const snap = (food: FoodItem, grams: number) =>
+    food.gramsPerUnit && food.unit
+      ? effectiveGrams(food, grams)
+      : Math.max(0, Math.round(grams));
 
-    if (proErr > 0.05) {
-      const it = getOrAdd(lastMainIdx, 'protein', protFB);
-      if (it && it.food.protein > 0) {
-        const step = tuneStep(it.food, 5);
-        it.grams = Math.max(0, it.grams + (pro < macros.protein ? step : -step));
+  // Sàn khẩu phần cho bữa chính: trưa/tối luôn phải còn thịt và cơm trên đĩa.
+  const MAIN_PROTEIN_MIN = 80;
+  const floorGrams = (tag: string, mealIdx: number): number => {
+    if (templates[mealIdx]?.type !== 'main') return 0;
+    if (tag === 'protein') return MAIN_PROTEIN_MIN;
+    if (tag === 'starch')  return MAIN_STARCH_MIN;
+    return 0;
+  };
+
+  // Cộng/trừ `deltaNutrient` gram dưỡng chất `key` bằng cách chỉnh khẩu phần nhóm `tag`.
+  // Thêm thì dồn vào bữa chính cuối; bớt thì rút ngược từ bữa cuối lên đầu — bước
+  // trước đây chỉ đụng được vào bữa chính cuối nên phần dư nằm ở các bữa khác
+  // (nhất là dầu ăn rải đều mọi bữa) không bao giờ gỡ ra được.
+  function adjustTag(
+    tag: string,
+    key: 'protein' | 'fat' | 'carbs',
+    deltaNutrient: number,
+    fallback: FoodItem | null
+  ): boolean {
+    if (deltaNutrient > 0) {
+      const it = getOrAdd(lastMainIdx, tag, fallback);
+      if (!it || it.food[key] <= 0) return false;
+      const before = it.grams;
+      it.grams = snap(it.food, it.grams + (deltaNutrient / it.food[key]) * 100);
+      return it.grams !== before;
+    }
+
+    let remain = -deltaNutrient;
+    let changed = false;
+    for (let i = mealCount - 1; i >= 0 && remain > 0.01; i--) {
+      for (const it of mealItems[i]) {
+        if (it.food.tag !== tag || it.grams <= 0 || it.food[key] <= 0) continue;
+        // Bữa chính phải giữ được suất thịt/cơm tối thiểu, nếu không vòng tinh chỉnh
+        // sẽ gọt sạch đĩa thịt của bữa trưa/tối để ép macro về đúng mục tiêu.
+        const floor = floorGrams(tag, i);
+        if (it.grams <= floor) continue;
+        const cut = Math.min(it.grams - floor, (remain / it.food[key]) * 100);
+        const before = it.grams;
+        it.grams = Math.max(floor, snap(it.food, it.grams - cut));
+        if (it.grams !== before) changed = true;
+        remain -= ((before - it.grams) * it.food[key]) / 100;
+        if (remain <= 0.01) break;
       }
     }
-    if (carErr > 0.05) {
-      const it = getOrAdd(lastMainIdx, 'starch', starchFB);
-      if (it && it.food.carbs > 0) {
-        const step = tuneStep(it.food, 5);
-        it.grams = Math.max(0, it.grams + (car < macros.carbs ? step : -step));
-      }
+    return changed;
+  }
+
+  // Sai số cho phép: tương đối 5%, nhưng khi mục tiêu ~0 thì phải xét tuyệt đối —
+  // trước đây target 0 bị coi là "sai số 0" nên phần dư (vd carbs từ rau) không
+  // bao giờ được cắt.
+  const tol = (target: number, absTol: number) => Math.max(absTol, target * 0.05);
+
+  let prev = '';
+  for (let iter = 0; iter < 40; iter++) {
+    const { cal, pro, fat, car } = dayMacro();
+
+    const dPro = macros.protein - pro;
+    const dFat = macros.fat     - fat;
+    const dCar = macros.carbs   - car;
+    const calOk = macros.calories <= 0
+      || Math.abs(cal - macros.calories) / macros.calories <= 0.05;
+
+    if (
+      Math.abs(dPro) <= tol(macros.protein, 5) &&
+      Math.abs(dFat) <= tol(macros.fat, 3) &&
+      Math.abs(dCar) <= tol(macros.carbs, 5) &&
+      calOk
+    ) break;
+
+    // Không tiến triển nữa (vd món đếm theo quả không nhích nổi nửa đơn vị) → dừng
+    // thay vì quay không đủ 100 vòng như trước.
+    const sig = `${pro.toFixed(1)}|${fat.toFixed(1)}|${car.toFixed(1)}`;
+    if (sig === prev) break;
+    prev = sig;
+
+    // Mỗi macro nằm trong dung sai riêng vẫn có thể cộng dồn thành lệch Calo lớn
+    // (5g đạm + 3g fat + 5g carbs ≈ 67 kcal — tới 8% của một mục tiêu 800 kcal).
+    // Khi Calo còn lệch thì siết dung sai lại để vòng lặp tiếp tục gọt.
+    const k = calOk ? 1 : 0.3;
+
+    let changed = false;
+    if (Math.abs(dPro) > tol(macros.protein, 5) * k) {
+      changed = adjustTag('protein', 'protein', dPro, protFB) || changed;
     }
-    if (fatErr > 0.05 && oilFood && oilFood.fat > 0) {
-      const it = getOrAdd(lastMainIdx, 'fat', oilFood);
-      if (it) it.grams = Math.max(0, it.grams + (fat < macros.fat ? 2 : -1));
+    if (Math.abs(dCar) > tol(macros.carbs, 5) * k) {
+      changed = adjustTag('starch', 'carbs', dCar, starchFB) || changed;
     }
+    if (Math.abs(dFat) > tol(macros.fat, 3) * k) {
+      changed = adjustTag('fat', 'fat', dFat, oilFood ?? null) || changed;
+    }
+    if (!changed) break;
   }
 
   for (let m = 0; m < mealItems.length; m++) {

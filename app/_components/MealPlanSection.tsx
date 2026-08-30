@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import type { NutritionResult } from "./DietForm";
 import { FOODS, type FoodItem } from "@/lib/foods-data";
 import { getCookingTip } from "@/lib/cooking-tips";
@@ -491,10 +491,15 @@ function IngredientSearchRow({
 }) {
   const results = isActive && row.query ? searchFoods(row.query, extraFoods) : [];
   const macros = row.food ? computeRowMacros(row.food, row.grams) : null;
+  // Ô nhập bám theo row.grams, nhưng vẫn cho gõ tự do (kể cả chuỗi rỗng) giữa chừng.
+  // Dùng "state phái sinh khi prop đổi" thay vì effect: effect gây thêm một vòng
+  // render thừa và hiển thị giá trị cũ ở vòng đầu.
   const [gramsInput, setGramsInput] = useState(String(row.grams));
-
-  // Đồng bộ ô nhập khi số lượng bị đổi từ bên ngoài (vd chọn trứng → mặc định 1 quả)
-  useEffect(() => { setGramsInput(String(row.grams)); }, [row.grams]);
+  const [syncedGrams, setSyncedGrams] = useState(row.grams);
+  if (syncedGrams !== row.grams) {
+    setSyncedGrams(row.grams);
+    setGramsInput(String(row.grams));
+  }
 
   return (
     <div className="space-y-1.5">

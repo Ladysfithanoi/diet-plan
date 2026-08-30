@@ -13,6 +13,15 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  // scripts/ là các script Node chạy tay để bóc dữ liệu thực phẩm (PDF/DOCX),
+  // không nằm trong bundle của app — không áp luật module/biến thừa của Next lên đây.
+  {
+    files: ["scripts/**"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+      "@typescript-eslint/no-unused-vars": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

@@ -137,12 +137,28 @@ function calcDER(
   }
 }
 
+// Ngưỡng sàn sức khoẻ, dùng chung cho cả tính tự động lẫn ô chỉnh tay bên dưới.
+const FAT_MIN = 40;
+const CARB_MIN = 30;
+const FAT_DEFAULT = 50;
+
+// Sàn Calo mà một thực đơn có thể dựng được: đạm giữ nguyên theo công thức,
+// fat không thể xuống dưới FAT_MIN. DER thấp hơn mốc này là bất khả thi.
+function macroFloorKcal(height: number): number {
+  return (height - 100) * 0.9 * 2 * 4 + FAT_MIN * 9;
+}
+
 function calcMacros(
   height: number,
   der: number
 ): { protein: number; fat: number; carbs: number } {
   const protein = (height - 100) * 0.9 * 2;
-  const fat = 50;
+  // Fat mặc định 50g, nhưng khi quỹ Calo eo hẹp thì hạ dần xuống FAT_MIN để
+  // nhường chỗ cho carbs. Trước đây fat bị khoá cứng ở 50g nên với DER thấp,
+  // riêng P×4 + F×9 đã vượt DER — thực đơn dựng ra luôn cao hơn mục tiêu.
+  const fat = Math.round(
+    Math.max(FAT_MIN, Math.min(FAT_DEFAULT, (der - protein * 4) / 9))
+  );
   const carbs = Math.max(0, (der - protein * 4 - fat * 9) / 4);
   return { protein, fat, carbs };
 }
@@ -363,7 +379,6 @@ export default function DietForm({
       return;
     }
 
-    const FAT_MIN = 40, CARB_MIN = 30;
     const der = result.der;
 
     if (field === "p") {
@@ -532,10 +547,15 @@ export default function DietForm({
     return computeGainRoadmap(w, form.goalInputMode, form.goalInputValue);
   })();
 
-  // Live calorie total: auto-balance always matches DER; manual mode uses edited macros
-  const liveDer = result
-    ? (autoBalance ? result.der : macroP * 4 + macroF * 9 + macroC * 4)
-    : 0;
+  // Calo mục tiêu thực = tổng macro. Trước đây chế độ tự động lấy thẳng result.der,
+  // nhưng khi DER thấp hơn sàn thì P/F/C cộng lại vẫn cao hơn — màn hình báo một
+  // con số còn thực đơn dựng theo con số khác. Giờ hai bên luôn khớp nhau.
+  const liveDer = result ? macroP * 4 + macroF * 9 + macroC * 4 : 0;
+
+  // DER thấp hơn sàn (đạm theo công thức + fat tối thiểu) là bất khả thi:
+  // không thực đơn nào vừa đủ đạm vừa xuống được mức Calo đó.
+  const derFloor = result ? Math.round(macroFloorKcal(result.height)) : 0;
+  const derBelowFloor = result !== null && result.der < derFloor;
 
   return (
     <>
@@ -1168,6 +1188,29 @@ export default function DietForm({
               <StatBox label="DER — Mục tiêu" value={`${liveDer.toLocaleString("vi-VN")} kcal`}
                 sub="Calo cần nạp mỗi ngày" highlight />
             </div>
+
+            {derBelowFloor && (
+              <div
+                className="mb-3 flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs leading-relaxed"
+                style={{
+                  background: "rgba(163,58,42,0.06)",
+                  border: "1px solid rgba(163,58,42,0.2)",
+                  color: "#A33A2A",
+                }}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" className="shrink-0 mt-0.5">
+                  <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <span>
+                  Mục tiêu <b>{result.der.toLocaleString("vi-VN")} kcal</b> thấp hơn mức sàn{" "}
+                  <b>{derFloor.toLocaleString("vi-VN")} kcal</b> — riêng {Math.round(result.protein)}g đạm
+                  và {FAT_MIN}g fat tối thiểu đã chiếm hết ngần đó. Thực đơn sẽ được dựng ở mức sàn.
+                  Muốn xuống thấp hơn, hãy giảm tốc độ giảm cân hoặc tăng mức độ vận động.
+                </span>
+              </div>
+            )}
 
             {/* ── Macro Editor ── */}
             <div className="mb-4">
